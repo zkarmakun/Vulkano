@@ -110,13 +110,13 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>D:\JorgeCR\Vulkano\Vulkano\VulkanoCore;D:\JorgeCR\Vulkano\Vulkano\Vulkano;D:\JorgeCR\Vulkano\Vulkano\Vulkano\ThirdParty;D:\JorgeCR\Vulkano\Vulkano\Vulkano\ThirdParty\fbx</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\JorgeCR\Vulkano\Vulkano\VulkanoCore;$(SolutionDir)\Vulkano;$(SolutionDir)\Vulkano\ThirdParty\;$(SolutionDir)\Vulkano\ThirdParty\fbx</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\JorgeCR\Vulkano\Vulkano\libs\vulkan; D:\JorgeCR\Vulkano\Vulkano\x64\Debug; D:\JorgeCR\Vulkano\Vulkano\libs\glslang;D:\JorgeCR\Vulkano\Vulkano\libs\fbx\debug;</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(SolutionDir)\libs\vulkan;$(SolutionDir)\libs\glslang;$(SolutionDir)\libs\fbx\debug</AdditionalLibraryDirectories>
       <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);vulkan-1.lib; glslangd.lib;GenericCodeGend.lib;glslang-default-resource-limitsd.lib;OGLCompilerd.lib;OSDependentd.lib;SPIRVd.lib;SPIRV-Toolsd.lib;SPIRV-Tools-optd.lib;SPVRemapperd.lib;MachineIndependentd.lib;dxcompiler.lib;libfbxsdk.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>

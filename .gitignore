@@ -31,3 +31,7 @@ Debug
 *.exe
 *.out
 *.app
+*.pdb
+
+#extra
+
