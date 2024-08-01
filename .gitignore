@@ -1,6 +1,10 @@
 # Prerequisites
 *.d
 
+.idea
+.vs
+Debug
+
 # Compiled Object files
 *.slo
 *.lo
@@ -23,8 +27,6 @@
 # Compiled Static libraries
 *.lai
 *.la
-*.a
-*.lib
 
 # Executables
 *.exe
