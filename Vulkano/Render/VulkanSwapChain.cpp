@@ -48,7 +48,10 @@ void FVulkanSwapChain::CreateSwapChain(HINSTANCE hInstance, HWND hwnd, int SizeX
     createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     createInfo.clipped = VK_TRUE;
 
-    vkCreateSwapchainKHR(FVulkan::GetDevice(), &createInfo, nullptr, &SwapChain);
+    if(vkCreateSwapchainKHR(FVulkan::GetDevice(), &createInfo, nullptr, &SwapChain) != VK_SUCCESS)
+    {
+	    checkf(0, "FVulkanSwapChain::CreateSwapChain Fail creating swap chain");
+    }
 
     vkGetSwapchainImagesKHR(FVulkan::GetDevice(), SwapChain, &SwapChainImageCount, nullptr);
     SwapChainImages.resize(SwapChainImageCount);
@@ -74,6 +77,14 @@ void FVulkanSwapChain::CreateSwapChain(HINSTANCE hInstance, HWND hwnd, int SizeX
 
 void FVulkanSwapChain::DestroySwapChain()
 {
+	for(const VkImageView& ImageView : SwapChainImagesViews)
+	{
+		if(ImageView != VK_NULL_HANDLE)
+		{
+			vkDestroyImageView(FVulkan::GetDevice(), ImageView, nullptr);
+		}
+	}
+	
 	if(SwapChain != VK_NULL_HANDLE)
 	{
 		vkDestroySwapchainKHR(FVulkan::GetDevice(), SwapChain, nullptr);
@@ -82,6 +93,16 @@ void FVulkanSwapChain::DestroySwapChain()
 	if(SurfaceKHR != VK_NULL_HANDLE)
 	{
 		vkDestroySurfaceKHR(FVulkan::GetInstance(), SurfaceKHR, nullptr);
+	}
+
+	if(ImageAvailableSemaphore != VK_NULL_HANDLE)
+	{
+		vkDestroySemaphore(FVulkan::GetDevice(), ImageAvailableSemaphore, nullptr);
+	}
+
+	if(RenderingFinishedSemaphore != VK_NULL_HANDLE)
+	{
+		vkDestroySemaphore(FVulkan::GetDevice(), RenderingFinishedSemaphore, nullptr);
 	}
 
 	for(const VkCommandBuffer& CommandBuffer : CommandBuffers)
@@ -112,22 +133,6 @@ void FVulkanSwapChain::DestroySwapChain()
 
 	FVulkan::ReleaseTexture(DepthStencil);
 
-	for(const VkImage& Image : SwapChainImages)
-	{
-		if(Image != VK_NULL_HANDLE)
-		{
-			vkDestroyImage(FVulkan::GetDevice(), Image, nullptr);
-		}
-	}
-
-	for(const VkImageView& ImageView : SwapChainImagesViews)
-	{
-		if(ImageView != VK_NULL_HANDLE)
-		{
-			vkDestroyImageView(FVulkan::GetDevice(), ImageView, nullptr);
-		}
-	}
-
 	for(const VkFramebuffer& Buffer : SwapChainFrameBuffers)
 	{
 		if(Buffer != VK_NULL_HANDLE)
@@ -135,6 +140,8 @@ void FVulkanSwapChain::DestroySwapChain()
 			vkDestroyFramebuffer(FVulkan::GetDevice(), Buffer, nullptr);
 		}
 	}
+
+	VK_LOG(LOG_INFO, "Destroy swap chain");
 }
 
 void FVulkanSwapChain::AcquireNextImage()

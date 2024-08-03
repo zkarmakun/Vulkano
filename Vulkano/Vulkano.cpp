@@ -33,6 +33,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     Renderer.Shutdown();
     RenderWindow.Shutdown();
 
+#ifdef _DEBUG
+    FVulkan::DestroyVulkanDebugLayer();
+#endif
     FVulkan::ExitVulkan();
-    return 0;																						
+    return 1;																						
 }

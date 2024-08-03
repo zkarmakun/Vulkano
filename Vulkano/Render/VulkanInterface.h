@@ -11,6 +11,7 @@ public:
     static HWND CreateDummyWindow(HINSTANCE hInstance);
     static void CreateVulkanInstance(const std::string& ApplicationName);
     static void CreateVulkanDebugLayer();
+    static void DestroyVulkanDebugLayer();
     static void CreateVulkanDevice(HINSTANCE hInstance);
     static void ExitVulkan();
     

@@ -39,9 +39,9 @@ private:
     VkCommandPool CommandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> CommandBuffers;
 
-    VkSemaphore ImageAvailableSemaphore;
-    VkSemaphore RenderingFinishedSemaphore;
+    VkSemaphore ImageAvailableSemaphore = VK_NULL_HANDLE;
+    VkSemaphore RenderingFinishedSemaphore = VK_NULL_HANDLE;
 
     std::vector<VkFence> Fences;
-    uint32_t FrameIndex;
+    uint32_t FrameIndex = 0;
 };

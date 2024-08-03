@@ -30,46 +30,34 @@ VkBool32 VKAPI_CALL DebugVulkanCallback2(
 {
     // Select prefix depending on flags passed to the callback
     std::string prefix;
+    std::stringstream debugMessage;
+
+    if (pCallbackData->pMessageIdName)
+    {
+        debugMessage << "[" << pCallbackData->messageIdNumber << "][" << pCallbackData->pMessageIdName << "] : " << pCallbackData->pMessage;
+    }
+    else
+    {
+        debugMessage <<  "[" << pCallbackData->messageIdNumber << "] : " << pCallbackData->pMessage;
+    }
 
     if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
     {
-        prefix = "VERBOSE: ";
+        VK_LOG(LOG_INFO, "%s", debugMessage.str().c_str());
     }
     else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
     {
-        prefix = "INFO: ";
+        VK_LOG(LOG_INFO, "%s", debugMessage.str().c_str());
     }
     else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
     {
-        prefix = "WARNING: ";
+        VK_LOG(LOG_WARNING, "%s", debugMessage.str().c_str());
     }
     else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
     {
-        prefix = "ERROR: ";
+        VK_LOG(LOG_ERROR, "%s", debugMessage.str().c_str());
     }
-
-
-    // Display message to default output (console/logcat)
-    std::stringstream debugMessage;
-    if (pCallbackData->pMessageIdName)
-    {
-        debugMessage << prefix << "[" << pCallbackData->messageIdNumber << "][" << pCallbackData->pMessageIdName << "] : " << pCallbackData->pMessage;
-    }
-    else
-    {
-        debugMessage << prefix << "[" << pCallbackData->messageIdNumber << "] : " << pCallbackData->pMessage;
-    }
-	
-    if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-    {
-        std::cerr << debugMessage.str() << "\n\n";
-    }
-    else
-    {
-        std::cout << debugMessage.str() << "\n\n";
-    }
-
-    fflush(stdout);
+    
     return VK_FALSE;
 }
 
@@ -200,6 +188,14 @@ void FVulkan::CreateVulkanDebugLayer()
     VK_LOG(LOG_INFO, "Vulkan Debug Layer Created");
 }
 
+void FVulkan::DestroyVulkanDebugLayer()
+{
+    if(DebugUtilsMessenger != VK_NULL_HANDLE)
+    {
+        vkDestroyDebugUtilsMessengerEXT(Instance, DebugUtilsMessenger, nullptr);
+    }
+}
+
 void FVulkan::SelectPhysicalDevice()
 {
     std::vector<VkPhysicalDevice> PhysicalDevices;
@@ -324,13 +320,21 @@ void FVulkan::CreateVulkanDevice(HINSTANCE hInstance)
 
 void FVulkan::ExitVulkan()
 {
-    if (Device != VK_NULL_HANDLE) {
+    if (Device != VK_NULL_HANDLE)
+    {
         vkDestroyDevice(Device, nullptr);
+        Device = VK_NULL_HANDLE;
+        VK_LOG(LOG_INFO, "Destroy Device");
     }
 
-    if (Instance != VK_NULL_HANDLE) {
+    if (Instance != VK_NULL_HANDLE)
+    {
         vkDestroyInstance(Instance, nullptr);
+        Instance = VK_NULL_HANDLE;
+        VK_LOG(LOG_INFO, "Destroy Instance");
     }
+
+    VK_LOG(LOG_INFO, "Existing engine... return 1 success");
 }
 
 VkSurfaceKHR FVulkan::CreateSurface(HINSTANCE hInstance, HWND hwnd)
