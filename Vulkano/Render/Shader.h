@@ -2,6 +2,7 @@
 #include <memory>
 #include <string>
 #include <glslang/Public/ShaderLang.h>
+#include "vulkan/vulkan_core.h"
 
 enum ECompilerType
 {
@@ -18,10 +19,10 @@ public:
     virtual EShLanguage GetShaderType() const;
     virtual ECompilerType GetCompilerType() const;
     bool IsCompiled() const;
-    void SetSpirData(const std::vector<uint32_t> SpirvData);
+    bool CreateModule(std::vector<uint32_t> SPIRV);
 
 protected:
-    std::vector<uint32_t> SPIRV;
+    VkShaderModule ShaderModule = VK_NULL_HANDLE;
 };
 
 class FDefaultVertexShader : public FShader

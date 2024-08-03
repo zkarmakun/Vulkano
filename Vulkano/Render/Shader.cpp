@@ -5,6 +5,8 @@
 #include <dxcapi.h>
 #include <wrl.h>
 
+#include "VulkanInterface.h"
+
 using Microsoft::WRL::ComPtr;
 
 FShader::FShader()
@@ -28,12 +30,26 @@ ECompilerType FShader::GetCompilerType() const
 
 bool FShader::IsCompiled() const
 {
-	return !SPIRV.empty();
+	return ShaderModule != VK_NULL_HANDLE;
 }
 
-void FShader::SetSpirData(const std::vector<uint32_t> SpirvData)
+bool FShader::CreateModule(std::vector<uint32_t> SPIRV)
 {
-	SPIRV = SpirvData;
+	if(SPIRV.empty())
+	{
+		return false;
+	}
+	
+	VkShaderModuleCreateInfo shaderModuleCreateInfo = {};
+	shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	shaderModuleCreateInfo.codeSize = SPIRV.size();
+	shaderModuleCreateInfo.pCode = SPIRV.data();
+	if(vkCreateShaderModule(FVulkan::GetDevice(), &shaderModuleCreateInfo, nullptr, &ShaderModule) != VK_SUCCESS)
+	{
+		VK_LOG(LOG_WARNING, "FShader::CreateModule Fail creating shader module: %s", GetSource().c_str());
+		return false;
+	}
+	return true;
 }
 
 FShaderCompiler::FShaderCompiler()
@@ -200,7 +216,7 @@ void FShaderCompiler::CompileGLSL(std::unique_ptr<FShader>& Shader)
 
 	TBuiltInResource Resources = {};
 	InitResources(Resources);
-	if (!shader.parse(&Resources , 100, false, EShMsgDefault))
+	if (!shader.parse(&Resources , 450, true, EShMsgDefault))
 	{
 		std::string Message = "Shader compile error:\n";
 		Message += shader.getInfoLog();
@@ -227,9 +243,10 @@ void FShaderCompiler::CompileGLSL(std::unique_ptr<FShader>& Shader)
 
 	std::vector<uint32_t> spirv;
 	glslang::GlslangToSpv(*program.getIntermediate(Shader->GetShaderType()), spirv);
-	Shader->SetSpirData(spirv);
-
-	VK_LOG(LOG_SUCCESS, "Compiled shader: %s", FPaths::GetFileName(FilePath).c_str());
+	if(Shader->CreateModule(spirv))
+	{
+		VK_LOG(LOG_SUCCESS, "Compiled shader: %s", FPaths::GetFileName(FilePath).c_str());
+	}
 }
 
 void FShaderCompiler::CompileHLSL(std::unique_ptr<FShader>& Shader)
@@ -323,5 +340,8 @@ void FShaderCompiler::CompileHLSL(std::unique_ptr<FShader>& Shader)
 
 	std::vector<uint32_t> spirv(shader->GetBufferSize() / 4);
 	memcpy(spirv.data(), shader->GetBufferPointer(), shader->GetBufferSize());
-	Shader->SetSpirData(spirv);
+	if(Shader->CreateModule(spirv))
+	{
+		VK_LOG(LOG_SUCCESS, "Compiled shader: %s", FPaths::GetFileName(FilePath).c_str());
+	}
 }

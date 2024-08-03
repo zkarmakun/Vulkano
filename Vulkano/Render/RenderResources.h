@@ -17,6 +17,8 @@ public:
 class FVulkanTexture
 {
 public:
+    bool Valid() const;
+    
     uint32_t SizeX = 0;
     uint32_t SizeY = 0;
     VkFormat Format = VK_FORMAT_UNDEFINED;

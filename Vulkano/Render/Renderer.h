@@ -19,5 +19,4 @@ private:
 private:
     bool bInitialized = false;
     FRenderWindow* pRenderWindow = nullptr;
-    VkSurfaceKHR SurfaceKHR;
 };

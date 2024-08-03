@@ -8,11 +8,16 @@
 class FVulkan
 {
 public:
+    static HWND CreateDummyWindow(HINSTANCE hInstance);
     static void CreateVulkanInstance(const std::string& ApplicationName);
     static void CreateVulkanDebugLayer();
-    static void CreateVulkanDevice(const VkSurfaceKHR& Surface);
+    static void CreateVulkanDevice(HINSTANCE hInstance);
+    static void ExitVulkan();
+    
     static VkSurfaceKHR CreateSurface(HINSTANCE hInstance, HWND hwnd);
     static VkBool32 GetSupportedDepthFormat(VkFormat* depthFormat);
+    static VkQueue GetGraphicsQueue();
+    static VkQueue GetPresentQueue();
 
     static std::vector<std::string> GetSupportedExtensions();
     static VkInstance& GetInstance();
@@ -25,7 +30,8 @@ public:
     static VkImageView CreateImageView(VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlags);
     
     static FVulkanTexture CreateTexture(int X, int Y, VkFormat Format, VkImageUsageFlags Flags, VkMemoryPropertyFlags MemoryFlags, std::string TextureName = "Texture", VkImageTiling Tilling = VK_IMAGE_TILING_LINEAR, VkImageAspectFlags AspectFlags = VK_IMAGE_ASPECT_COLOR_BIT);
-
+    static void ReleaseTexture(FVulkanTexture& Texture);
+    
     template<typename StructType>
     static FVulkanBuffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     static void SetBufferData(FVulkanBuffer& Buffer, const void* BufferData, size_t BufferSize);
@@ -41,4 +47,11 @@ private:
     static PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT;
     static PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
     static VkDebugUtilsMessengerEXT DebugUtilsMessenger;
+
+    static uint32_t GraphicsIndex;
+    static uint32_t ComputeIndex;
+    static uint32_t PresentIndex;
+    static VkQueue GraphicsQueue;
+    static VkQueue PresentQueue;
+    static VkQueue ComputeQueue;
 };

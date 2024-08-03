@@ -12,14 +12,7 @@ FRenderer::FRenderer()
 void FRenderer::Init(FRenderWindow* RenderWindow)
 {
     pRenderWindow = RenderWindow;
-	FVulkan::CreateVulkanInstance("Vulkano");
-	FVulkan::CreateVulkanDebugLayer();
-	SurfaceKHR = FVulkan::CreateSurface(pRenderWindow->GetHInstance(), pRenderWindow->GetWindow());
-	FVulkan::CreateVulkanDevice(SurfaceKHR);
-	/*vkGetDeviceQueue(Device, graphics_QueueFamilyIndex, 0, &GraphicsQueue);
-	vkGetDeviceQueue(Device, present_QueueFamilyIndex, 0, &PresentQueue);*/
-	SwapChain2.CreateSwapChain(SurfaceKHR, pRenderWindow->GetWidth(), pRenderWindow->GetHeight());
-
+	SwapChain2.CreateSwapChain(pRenderWindow->GetHInstance(), pRenderWindow->GetWindow(), pRenderWindow->GetWidth(), pRenderWindow->GetHeight());
 	bInitialized = true;
 }
 
@@ -43,7 +36,6 @@ void FRenderer::RenderLoop()
 		if (bInitialized && !IsIconic(pRenderWindow->GetWindow()))
 		{
 			SwapChain2.AcquireNextImage();
-			// AcquireNextImage();
 		}
 	}
 }
@@ -54,7 +46,6 @@ void FRenderer::Shutdown()
 	{
 		return;
 	}
-    
-	vkDestroySurfaceKHR(FVulkan::GetInstance(), SurfaceKHR, nullptr);
-	vkDestroyInstance(FVulkan::GetInstance(), nullptr);
+	bInitialized = false;
+	SwapChain2.DestroySwapChain();
 }

@@ -4,13 +4,13 @@
 #include "VulkanInterface.h"
 #include "Core/Assertion.h"
 
-void FVulkanSwapChain::CreateSwapChain(const VkSurfaceKHR& SurfaceKHR, int SizeX, int SizeY)
+void FVulkanSwapChain::CreateSwapChain(HINSTANCE hInstance, HWND hwnd, int SizeX, int SizeY)
 {
-	/*vkGetDeviceQueue(Device, graphics_QueueFamilyIndex, 0, &GraphicsQueue);
-	vkGetDeviceQueue(Device, present_QueueFamilyIndex, 0, &PresentQueue);*/
-
-	vkGetDeviceQueue(FVulkan::GetDevice(), 0, 0, &GraphicsQueue);
-	vkGetDeviceQueue(FVulkan::GetDevice(), 0, 0, &PresentQueue);
+	SurfaceKHR = FVulkan::CreateSurface(hInstance, hwnd);
+	if(SurfaceKHR != VK_NULL_HANDLE)
+	{
+		VK_LOG(LOG_INFO, "Creating Surface Win64");
+	}
 	
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(FVulkan::GetPhysicalDevice(), SurfaceKHR, &SurfaceCapabilitiesKHR);
    
@@ -72,6 +72,71 @@ void FVulkanSwapChain::CreateSwapChain(const VkSurfaceKHR& SurfaceKHR, int SizeX
 	VK_LOG(LOG_INFO, "Creating swap chain");
 }
 
+void FVulkanSwapChain::DestroySwapChain()
+{
+	if(SwapChain != VK_NULL_HANDLE)
+	{
+		vkDestroySwapchainKHR(FVulkan::GetDevice(), SwapChain, nullptr);
+	}
+
+	if(SurfaceKHR != VK_NULL_HANDLE)
+	{
+		vkDestroySurfaceKHR(FVulkan::GetInstance(), SurfaceKHR, nullptr);
+	}
+
+	for(const VkCommandBuffer& CommandBuffer : CommandBuffers)
+	{
+		if (CommandBuffer != VK_NULL_HANDLE && CommandPool != VK_NULL_HANDLE)
+		{
+			vkFreeCommandBuffers(FVulkan::GetDevice(), CommandPool, 1, &CommandBuffer);
+		}
+	}
+
+	if (CommandPool != VK_NULL_HANDLE)
+	{
+		vkDestroyCommandPool(FVulkan::GetDevice(), CommandPool, nullptr);
+	}
+
+	for(const VkFence& Fence : Fences)
+	{
+		if(Fence != VK_NULL_HANDLE)
+		{
+			vkDestroyFence(FVulkan::GetDevice(), Fence, nullptr);
+		}
+	}
+
+	if(RenderPass != VK_NULL_HANDLE)
+	{
+		vkDestroyRenderPass(FVulkan::GetDevice(), RenderPass, nullptr);
+	}
+
+	FVulkan::ReleaseTexture(DepthStencil);
+
+	for(const VkImage& Image : SwapChainImages)
+	{
+		if(Image != VK_NULL_HANDLE)
+		{
+			vkDestroyImage(FVulkan::GetDevice(), Image, nullptr);
+		}
+	}
+
+	for(const VkImageView& ImageView : SwapChainImagesViews)
+	{
+		if(ImageView != VK_NULL_HANDLE)
+		{
+			vkDestroyImageView(FVulkan::GetDevice(), ImageView, nullptr);
+		}
+	}
+
+	for(const VkFramebuffer& Buffer : SwapChainFrameBuffers)
+	{
+		if(Buffer != VK_NULL_HANDLE)
+		{
+			vkDestroyFramebuffer(FVulkan::GetDevice(), Buffer, nullptr);
+		}
+	}
+}
+
 void FVulkanSwapChain::AcquireNextImage()
 {
 	vkAcquireNextImageKHR(FVulkan::GetDevice(),
@@ -129,7 +194,7 @@ void FVulkanSwapChain::AcquireNextImage()
 	submitInfo.pCommandBuffers = &CommandBuffer;
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = &RenderingFinishedSemaphore;
-	vkQueueSubmit(GraphicsQueue, 1, &submitInfo, Fences[FrameIndex]);
+	vkQueueSubmit(FVulkan::GetGraphicsQueue(), 1, &submitInfo, Fences[FrameIndex]);
 
 	VkPresentInfoKHR presentInfo = {};
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -138,9 +203,9 @@ void FVulkanSwapChain::AcquireNextImage()
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = &SwapChain;
 	presentInfo.pImageIndices = &FrameIndex;
-	vkQueuePresentKHR(PresentQueue, &presentInfo);
+	vkQueuePresentKHR(FVulkan::GetPresentQueue(), &presentInfo);
 
-	vkQueueWaitIdle(PresentQueue);
+	vkQueueWaitIdle(FVulkan::GetPresentQueue());
 }
 
 void FVulkanSwapChain::SetupDepthStencil()

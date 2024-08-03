@@ -8,9 +8,15 @@
 #include "Core/Assertion.h"
 #include "Core/VulkanoLog.h"
 
-VkInstance          FVulkan::Instance = { VK_NULL_HANDLE };;
-VkDevice            FVulkan::Device;
-VkPhysicalDevice    FVulkan::PhysicalDevice;
+VkInstance          FVulkan::Instance = { VK_NULL_HANDLE };
+VkDevice            FVulkan::Device = { VK_NULL_HANDLE };
+VkPhysicalDevice    FVulkan::PhysicalDevice = { VK_NULL_HANDLE };
+uint32_t            FVulkan::GraphicsIndex = UINT32_MAX;
+uint32_t            FVulkan::PresentIndex = UINT32_MAX;
+uint32_t            FVulkan::ComputeIndex = UINT32_MAX;
+VkQueue             FVulkan::GraphicsQueue = VK_NULL_HANDLE;
+VkQueue             FVulkan::PresentQueue = VK_NULL_HANDLE;
+VkQueue             FVulkan::ComputeQueue = VK_NULL_HANDLE;
 
 PFN_vkCreateDebugUtilsMessengerEXT  FVulkan::vkCreateDebugUtilsMessengerEXT;
 PFN_vkDestroyDebugUtilsMessengerEXT FVulkan::vkDestroyDebugUtilsMessengerEXT;
@@ -67,6 +73,67 @@ VkBool32 VKAPI_CALL DebugVulkanCallback2(
     return VK_FALSE;
 }
 
+LRESULT CALLBACK DummyWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    return DefWindowProc(hWnd, message, wParam, lParam);
+}
+
+HWND FVulkan::CreateDummyWindow(HINSTANCE hInstance)
+{
+    WNDCLASS wc = {};
+    wc.lpfnWndProc = DummyWndProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = L"DummyWindowClass";
+
+    RegisterClass(&wc);
+
+    HWND hWnd = CreateWindowExA(
+        0,                              // Optional window styles.
+        "DummyWindowClass",             // Window class
+        "Dummy Window",                 // Window text
+        WS_OVERLAPPEDWINDOW,            // Window style
+
+        // Size and position
+        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+
+        NULL,       // Parent window
+        NULL,       // Menu
+        hInstance,  // Instance handle
+        NULL        // Additional application data
+    );
+
+    if (hWnd == NULL)
+    {
+        checkf(0, "Failed to create dummy window");
+    }
+
+    return hWnd;
+}
+
+bool CheckValidationLayerSupport(const std::vector<const char*>& validationLayers) {
+    uint32_t layerCount;
+    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+
+    std::vector<VkLayerProperties> availableLayers(layerCount);
+    vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+    for (const char* layerName : validationLayers) {
+        bool layerFound = false;
+
+        for (const auto& layerProperties : availableLayers) {
+            if (strcmp(layerName, layerProperties.layerName) == 0) {
+                layerFound = true;
+                break;
+            }
+        }
+
+        if (!layerFound) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void FVulkan::CreateVulkanInstance(const std::string& ApplicationName)
 {
     if(Instance != VK_NULL_HANDLE)
@@ -74,8 +141,22 @@ void FVulkan::CreateVulkanInstance(const std::string& ApplicationName)
         printf("Vulkan instance already exist");
         return;
     }
-    
+
+#ifdef _DEBUG
+    std::vector<const char*> validationLayers = {
+        "VK_LAYER_KHRONOS_validation"
+    };
+    // Check if the validation layers are supported
+    if (!CheckValidationLayerSupport(validationLayers))
+    {
+        VK_LOG(LOG_WARNING, "Validation layer is not available in your machine, please install the vulkan SDK from lunar");
+        validationLayers.clear();
+    }
+#else
     std::vector<const char*> validationLayers;
+#endif
+
+    
     std::vector<const char*> instanceExtensions = { VK_KHR_SURFACE_EXTENSION_NAME };
     instanceExtensions.push_back("VK_KHR_win32_surface");
     instanceExtensions.push_back("VK_EXT_debug_utils");
@@ -84,14 +165,14 @@ void FVulkan::CreateVulkanInstance(const std::string& ApplicationName)
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = ApplicationName.c_str();
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "MyEngine";
+    appInfo.pEngineName = ApplicationName.c_str();
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.apiVersion = VK_API_VERSION_1_0;
 
     VkInstanceCreateInfo instanceCreateInfo = {};
     instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instanceCreateInfo.pApplicationInfo = &appInfo;
-    instanceCreateInfo.enabledLayerCount = validationLayers.size();
+    instanceCreateInfo.enabledLayerCount =  static_cast<uint32_t>(validationLayers.size());
     instanceCreateInfo.ppEnabledLayerNames = validationLayers.data();
     instanceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(instanceExtensions.size());
     instanceCreateInfo.ppEnabledExtensionNames = instanceExtensions.data();
@@ -142,7 +223,7 @@ void FVulkan::SelectPhysicalDevice()
     checkf(0, "Failed selecting device");
 }
 
-void FVulkan::CreateVulkanDevice(const VkSurfaceKHR& Surface)
+void FVulkan::CreateVulkanDevice(HINSTANCE hInstance)
 {
     if(Device != VK_NULL_HANDLE)
     {
@@ -159,78 +240,97 @@ void FVulkan::CreateVulkanDevice(const VkSurfaceKHR& Surface)
     QueueFamilyProps.resize(QueueCount);
     vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &QueueCount, QueueFamilyProps.data());
 
-    int graphicIndex = -1;
-    int presentIndex = -1;
+    
+    HWND DummyWindow = CreateDummyWindow(hInstance);
+    VkSurfaceKHR TempSurface = CreateSurface(hInstance, DummyWindow);
 
     int i = 0;
     for(const auto& queueFamily : QueueFamilyProps)
     {
+        // Support graphics API
         if(queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
         {
-            graphicIndex = i;
+            GraphicsIndex = i;
         }
+
+        if(queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT)
+        {
+            ComputeIndex = i;
+        }
+            
 
         VkBool32 presentSupport = false;
-        vkGetPhysicalDeviceSurfaceSupportKHR(PhysicalDevice, i, Surface, &presentSupport);
+        vkGetPhysicalDeviceSurfaceSupportKHR(PhysicalDevice, i, TempSurface, &presentSupport);
         if(queueFamily.queueCount > 0 && presentSupport)
         {
-            presentIndex = i;
+            PresentIndex = i;
         }
 
-        if(graphicIndex != -1 && presentIndex != -1)
+        if(PresentIndex != UINT32_MAX && GraphicsIndex != UINT32_MAX && ComputeIndex != UINT32_MAX)
         {
             break;
         }
 
         i++;
     }
+    
 
-    uint32_t graphics_QueueFamilyIndex = graphicIndex;
-    uint32_t present_QueueFamilyIndex = presentIndex;
+    // Destroy temp surface
+    vkDestroySurfaceKHR(Instance, TempSurface, nullptr);
+    DestroyWindow(DummyWindow);
     
     std::vector<const char*> validationLayers;
     const std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-    const float queue_priority[] = { 1.0f };
-
+    
+    std::set<uint32_t> uniqueQueueFamilies = { GraphicsIndex, PresentIndex, ComputeIndex };
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-    std::set<uint32_t> uniqueQueueFamilies = { graphics_QueueFamilyIndex, present_QueueFamilyIndex };
+    float queuePriority = 1.0f;
 
-    float queuePriority = queue_priority[0];
-    for(int queueFamily : uniqueQueueFamilies)
-    {
-        VkDeviceQueueCreateInfo queueCreateInfo = {};
+    for (uint32_t queueFamily : uniqueQueueFamilies) {
+        VkDeviceQueueCreateInfo queueCreateInfo{};
         queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queueCreateInfo.queueFamilyIndex = queueFamily;
         queueCreateInfo.queueCount = 1;
         queueCreateInfo.pQueuePriorities = &queuePriority;
         queueCreateInfos.push_back(queueCreateInfo);
     }
-
-    VkDeviceQueueCreateInfo queueCreateInfo = {};
-    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = graphics_QueueFamilyIndex;
-    queueCreateInfo.queueCount = 1;
-    queueCreateInfo.pQueuePriorities = &queuePriority;
+    
     
     VkPhysicalDeviceFeatures deviceFeatures = {};
     deviceFeatures.samplerAnisotropy = VK_TRUE;
 
-    VkDeviceCreateInfo createInfo = {};
+    VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    createInfo.pQueueCreateInfos = &queueCreateInfo;
-    createInfo.queueCreateInfoCount = queueCreateInfos.size();
+    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
     createInfo.pQueueCreateInfos = queueCreateInfos.data();
     createInfo.pEnabledFeatures = &deviceFeatures;
     createInfo.enabledExtensionCount = deviceExtensions.size();
     createInfo.ppEnabledExtensionNames = deviceExtensions.data();
-
+    
     createInfo.enabledLayerCount = validationLayers.size();
     createInfo.ppEnabledLayerNames = validationLayers.data();
 
-    vkCreateDevice(PhysicalDevice, &createInfo, nullptr, &Device);
+    if(vkCreateDevice(PhysicalDevice, &createInfo, nullptr, &Device) != VK_SUCCESS)
+    {
+        checkf(0, "FVulkan::CreateVulkanDevice Fail creating logical device");
+    }
 
-    /*vkGetDeviceQueue(Device, graphics_QueueFamilyIndex, 0, &GraphicsQueue);
-    vkGetDeviceQueue(Device, present_QueueFamilyIndex, 0, &PresentQueue);*/
+    VK_LOG(LOG_INFO, "Logical device created");
+
+    vkGetDeviceQueue(Device, GraphicsIndex, 0, &GraphicsQueue);
+    vkGetDeviceQueue(Device, PresentIndex, 0, &PresentQueue);
+    vkGetDeviceQueue(Device, ComputeIndex, 0, &ComputeQueue);
+}
+
+void FVulkan::ExitVulkan()
+{
+    if (Device != VK_NULL_HANDLE) {
+        vkDestroyDevice(Device, nullptr);
+    }
+
+    if (Instance != VK_NULL_HANDLE) {
+        vkDestroyInstance(Instance, nullptr);
+    }
 }
 
 VkSurfaceKHR FVulkan::CreateSurface(HINSTANCE hInstance, HWND hwnd)
@@ -244,7 +344,6 @@ VkSurfaceKHR FVulkan::CreateSurface(HINSTANCE hInstance, HWND hwnd)
     {
         checkf(0, "Fail creating surface");
     }
-    VK_LOG(LOG_INFO, "Creating Surface Win64");
     return SurfaceKHR;
 }
 
@@ -270,6 +369,16 @@ VkBool32 FVulkan::GetSupportedDepthFormat(VkFormat* depthFormat)
     }
 
     return false;
+}
+
+VkQueue FVulkan::GetGraphicsQueue()
+{
+    return GraphicsQueue;
+}
+
+VkQueue FVulkan::GetPresentQueue()
+{
+    return PresentQueue;
 }
 
 std::vector<std::string> FVulkan::GetSupportedExtensions()
@@ -448,6 +557,30 @@ FVulkanTexture FVulkan::CreateTexture(int X, int Y, VkFormat Format, VkImageUsag
     }
 
     return Texture;
+}
+
+void FVulkan::ReleaseTexture(FVulkanTexture& Texture)
+{
+    // Destroy Image View
+    if (Texture.ImageView != VK_NULL_HANDLE)
+    {
+        vkDestroyImageView(Device, Texture.ImageView, nullptr);
+        Texture.ImageView = VK_NULL_HANDLE;
+    }
+
+    // Destroy Image
+    if (Texture.Image != VK_NULL_HANDLE)
+    {
+        vkDestroyImage(Device, Texture.Image, nullptr);
+        Texture.Image = VK_NULL_HANDLE;
+    }
+
+    // Free Memory
+    if (Texture.ImageMemory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(Device, Texture.ImageMemory, nullptr);
+        Texture.ImageMemory = VK_NULL_HANDLE;
+    }
 }
 
 template <typename StructType>
