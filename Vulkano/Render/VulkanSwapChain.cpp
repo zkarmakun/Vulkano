@@ -357,11 +357,12 @@ void FVulkanSwapChain::CreateFences()
 	Fences.resize(SwapChainImageCount);
 	for(i = 0; i < SwapChainImageCount; i++)
 	{
-		VkResult result;
-
 		VkFenceCreateInfo createInfo = {};
 		createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-		vkCreateFence(FVulkan::GetDevice(), &createInfo, nullptr, &Fences[i]);
+		if(vkCreateFence(FVulkan::GetDevice(), &createInfo, nullptr, &Fences[i]) != VK_SUCCESS)
+		{
+			fatal("FVulkanSwapChain::CreateFences Fail creating fences");
+		}
 	}
 }
