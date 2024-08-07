@@ -5,6 +5,8 @@
 #include <vector>
 #include <vulkan/vulkan_win32.h>
 
+#include "Shader.h"
+#include "VertexInputs.h"
 #include "Core/Assertion.h"
 #include "Core/VulkanoLog.h"
 
@@ -17,6 +19,8 @@ uint32_t            FVulkan::ComputeIndex = UINT32_MAX;
 VkQueue             FVulkan::GraphicsQueue = VK_NULL_HANDLE;
 VkQueue             FVulkan::PresentQueue = VK_NULL_HANDLE;
 VkQueue             FVulkan::ComputeQueue = VK_NULL_HANDLE;
+uint32_t            FVulkan::MajorVersion = UINT32_MAX;
+uint32_t            FVulkan::MinorVersion = UINT32_MAX;
 
 PFN_vkCreateDebugUtilsMessengerEXT  FVulkan::vkCreateDebugUtilsMessengerEXT;
 PFN_vkDestroyDebugUtilsMessengerEXT FVulkan::vkDestroyDebugUtilsMessengerEXT;
@@ -155,7 +159,7 @@ void FVulkan::CreateVulkanInstance(const std::string& ApplicationName)
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = ApplicationName.c_str();
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    appInfo.apiVersion = VK_API_VERSION_1_3;
 
     VkInstanceCreateInfo instanceCreateInfo = {};
     instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -167,10 +171,20 @@ void FVulkan::CreateVulkanInstance(const std::string& ApplicationName)
 
     if(vkCreateInstance(&instanceCreateInfo, nullptr, &Instance) != VK_SUCCESS)
     {
-        checkf(0, "Failed creating vulkan instance");
-        return;
+        fatal("Failed creating vulkan instance");
     }
-    VK_LOG(LOG_INFO, "Vulkan Instance Created");
+
+    // Query the Vulkan version
+    uint32_t apiVersion;
+    vkEnumerateInstanceVersion(&apiVersion);
+
+    uint32_t major = VK_VERSION_MAJOR(apiVersion);
+    uint32_t minor = VK_VERSION_MINOR(apiVersion);
+    uint32_t patch = VK_VERSION_PATCH(apiVersion);
+
+    VK_LOG(LOG_INFO, "Vulkan Instance Created, API version: %i.%i.%i", major, minor, patch);
+    MajorVersion = major;
+    MinorVersion = minor;
 }
 
 void FVulkan::CreateVulkanDebugLayer()
@@ -308,7 +322,7 @@ void FVulkan::CreateVulkanDevice(HINSTANCE hInstance)
 
     if(vkCreateDevice(PhysicalDevice, &createInfo, nullptr, &Device) != VK_SUCCESS)
     {
-        checkf(0, "FVulkan::CreateVulkanDevice Fail creating logical device");
+        fatal("FVulkan::CreateVulkanDevice Fail creating logical device");
     }
 
     VK_LOG(LOG_INFO, "Logical device created");
@@ -316,10 +330,14 @@ void FVulkan::CreateVulkanDevice(HINSTANCE hInstance)
     vkGetDeviceQueue(Device, GraphicsIndex, 0, &GraphicsQueue);
     vkGetDeviceQueue(Device, PresentIndex, 0, &PresentQueue);
     vkGetDeviceQueue(Device, ComputeIndex, 0, &ComputeQueue);
+
+    VKGlobals::InitGlobalResources();
 }
 
 void FVulkan::ExitVulkan()
 {
+    VKGlobals::CleanupGlobalResources();
+    
     if (Device != VK_NULL_HANDLE)
     {
         vkDestroyDevice(Device, nullptr);
@@ -420,6 +438,16 @@ VkDevice& FVulkan::GetDevice()
 VkPhysicalDevice& FVulkan::GetPhysicalDevice()
 {
     return PhysicalDevice;
+}
+
+uint32_t FVulkan::GetMajorVersion()
+{
+    return MajorVersion;
+}
+
+uint32_t FVulkan::GetMinorVersion()
+{
+    return MinorVersion;
 }
 
 uint32_t FVulkan::FindMemoryType(const VkPhysicalDevice& PhysicalDevice, uint32_t TypeFilter, VkMemoryPropertyFlags MemoryPropertyFlags)
@@ -626,4 +654,190 @@ void FVulkan::SetBufferData(FVulkanBuffer& Buffer, const void* BufferData, size_
     vkMapMemory(Device, Buffer.BufferMemory, 0, BufferSize, 0, &data);
     memcpy(data, BufferData, BufferSize);
     vkUnmapMemory(Device, Buffer.BufferMemory);
+}
+
+std::shared_ptr<FRenderPass> FVulkan::CreateRenderPass(const std::vector<FVulkanTexture>& Attachments, VkAttachmentLoadOp LoadingOperation, const FVulkanTexture& DepthStencil, VkAttachmentLoadOp DepthLoadingOperation, const std::string& PassName)
+{
+    if(Attachments.empty() || Attachments.size() > 8)
+    {
+        VK_LOG(LOG_ERROR, "FVulkan::CreateRenderPass Failed creating render pass, invalid attachments arguments");
+        return nullptr;
+    }
+
+    auto SetupAttachment_Lambda([](VkAttachmentDescription& Attach, VkAttachmentLoadOp LoadOp, VkFormat Format, VkImageLayout FinalLayout)
+    {
+        Attach.samples = VK_SAMPLE_COUNT_1_BIT;
+        Attach.loadOp = LoadOp;
+        Attach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        Attach.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        Attach.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        Attach.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        Attach.finalLayout = FinalLayout;
+        Attach.format = Format;
+    });
+
+    std::vector<VkAttachmentDescription> AttachmentDescriptions;
+    std::vector<VkAttachmentReference> ColorReferences;
+    for (uint32_t i = 0; i < Attachments.size(); ++i)
+    {
+        VkAttachmentDescription& Attach = AttachmentDescriptions.emplace_back();
+        SetupAttachment_Lambda(Attach, LoadingOperation, Attachments[i].Format, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        
+        VkAttachmentReference& Reference = ColorReferences.emplace_back();
+        Reference.attachment = i;
+        Reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+
+    VkSubpassDescription subpass = {};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.pColorAttachments = ColorReferences.data();
+    subpass.colorAttachmentCount = static_cast<uint32_t>(ColorReferences.size());
+    
+    VkAttachmentReference depthReference = {};
+    if(DepthStencil.Valid())
+    {
+        VkAttachmentDescription& Attach = AttachmentDescriptions.emplace_back();
+        SetupAttachment_Lambda(Attach, DepthLoadingOperation, DepthStencil.Format, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        depthReference.attachment = static_cast<uint32_t>(AttachmentDescriptions.size()) - 1;
+        depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        subpass.pDepthStencilAttachment = &depthReference;
+    }
+
+    VkRenderPassCreateInfo renderPassInfo = {};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.pAttachments = AttachmentDescriptions.data();
+    renderPassInfo.attachmentCount = static_cast<uint32_t>(AttachmentDescriptions.size());
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+
+    VkRenderPass RenderPass = VK_NULL_HANDLE;
+    if(vkCreateRenderPass(Device, &renderPassInfo, nullptr, &RenderPass) == VK_SUCCESS)
+    {
+        std::shared_ptr<FRenderPass> NewRenderPass = std::make_shared<FRenderPass>();
+        NewRenderPass->RenderPassName = PassName;
+        NewRenderPass->RenderPass = RenderPass;
+        return NewRenderPass;
+    }
+    
+    return nullptr;
+}
+
+std::shared_ptr<FGraphicsPipeline> FVulkan::CreateGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer, std::shared_ptr<FRenderPass> RenderPass)
+{
+    // We need at least vertex and pixel shader
+    if(!PSOInitializer.VertexShader || !PSOInitializer.PixelShader || !RenderPass)
+    {
+        VK_LOG(LOG_ERROR, "Failied creating graphics pipelines, invalid shader or render pass");
+        return nullptr;
+    }
+
+    std::vector<VkPipelineShaderStageCreateInfo> ShaderStages;
+    VkPipelineShaderStageCreateInfo& VertexStageInfo = ShaderStages.emplace_back();
+    VertexStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    VertexStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    VertexStageInfo.module = PSOInitializer.VertexShader->GetShader();
+    VertexStageInfo.pName = PSOInitializer.VertexShader->GetEntryPoint().c_str();
+    
+    VkPipelineShaderStageCreateInfo& PixelStageInfo = ShaderStages.emplace_back();
+    PixelStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    PixelStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    PixelStageInfo.module = PSOInitializer.PixelShader->GetShader();
+    PixelStageInfo.pName = PSOInitializer.PixelShader->GetEntryPoint().c_str();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = PSOInitializer.PrimitiveTopology;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.logicOp = VK_LOGIC_OP_COPY;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+    colorBlending.blendConstants[0] = 0.0f;
+    colorBlending.blendConstants[1] = 0.0f;
+    colorBlending.blendConstants[2] = 0.0f;
+    colorBlending.blendConstants[3] = 0.0f;
+
+    std::vector<VkDynamicState> dynamicStates = {
+            VK_DYNAMIC_STATE_VIEWPORT,
+            VK_DYNAMIC_STATE_SCISSOR
+    };
+
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 0;
+    pipelineLayoutInfo.pushConstantRangeCount = 0;
+
+    VkPipelineLayout PipeLineLayout = VK_NULL_HANDLE;
+    if (vkCreatePipelineLayout(FVulkan::GetDevice(), &pipelineLayoutInfo, nullptr, &PipeLineLayout) != VK_SUCCESS)
+    {
+        VK_LOG(LOG_ERROR, "Failed creating pipeline layout");
+        return nullptr;
+    }
+
+    if(!PSOInitializer.VertexInput)
+    {
+        VK_LOG(LOG_ERROR, "No valid vertex input creating the graphics pipeline");
+        return nullptr;
+    }
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = static_cast<uint32_t>(ShaderStages.size());
+    pipelineInfo.pStages = ShaderStages.data();
+    pipelineInfo.pVertexInputState = &PSOInitializer.VertexInput->GetInputVertexState();
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = nullptr; // Optional
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = PipeLineLayout;
+    /*pipelineInfo.renderPass = renderPass;
+    pipelineInfo.subpass = 0;*/
+
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
+    pipelineInfo.basePipelineIndex = -1; // Optional
+
+    VkPipeline GraphicsPipeline;
+    if (vkCreateGraphicsPipelines(FVulkan::GetDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &GraphicsPipeline) != VK_SUCCESS)
+    {
+        VK_LOG(LOG_ERROR, "failed to create graphics pipeline");
+        return nullptr;
+    }
+
+    std::shared_ptr<FGraphicsPipeline> NewGraphics = std::make_shared<FGraphicsPipeline>(GraphicsPipeline, PipeLineLayout);
+    return NewGraphics;
 }

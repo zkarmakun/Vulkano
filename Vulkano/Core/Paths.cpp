@@ -9,16 +9,22 @@
 
 std::string FPaths::LoadFileToString(const std::string& FilePath)
 {
-    std::ifstream file(FilePath);
-    if (!file.is_open())
-    {
-        VK_LOG(LOG_WARNING, "Could not opend file %s", FilePath.c_str());
-        return "";
+    std::ifstream file(FilePath, std::ios::binary | std::ios::in);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file");
     }
 
-    std::ostringstream ss;
-    ss << file.rdbuf();
-    return ss.str();
+    // Read the entire file content into a string
+    std::string content((std::istreambuf_iterator<char>(file)),
+                        std::istreambuf_iterator<char>());
+
+    // Check for BOM and remove if present
+    const std::string BOM = "\xEF\xBB\xBF";
+    if (content.find(BOM) == 0) {
+        content.erase(0, BOM.length());
+    }
+
+    return content;
 }
 
 std::string FPaths::GetBinsDirectory()

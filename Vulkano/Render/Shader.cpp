@@ -13,6 +13,11 @@ FShader::FShader()
 {
 }
 
+FShader::~FShader()
+{
+	Release();
+}
+
 std::string FShader::GetSource()
 {
 	return "";
@@ -28,6 +33,11 @@ ECompilerType FShader::GetCompilerType() const
 	return GLSL;
 }
 
+std::string FShader::GetEntryPoint() const
+{
+	return "main";
+}
+
 bool FShader::IsCompiled() const
 {
 	return ShaderModule != VK_NULL_HANDLE;
@@ -35,14 +45,20 @@ bool FShader::IsCompiled() const
 
 bool FShader::CreateModule(std::vector<uint32_t> SPIRV)
 {
+	if(IsCompiled())
+	{
+		return true;
+	}
+	
 	if(SPIRV.empty())
 	{
+		VK_LOG(LOG_WARNING, "FShader::CreateModule Fail creating shader module SPIRV code is empty: %s", GetSource().c_str());
 		return false;
 	}
 	
 	VkShaderModuleCreateInfo shaderModuleCreateInfo = {};
 	shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	shaderModuleCreateInfo.codeSize = SPIRV.size();
+	shaderModuleCreateInfo.codeSize = SPIRV.size() * sizeof(uint32_t);
 	shaderModuleCreateInfo.pCode = SPIRV.data();
 	if(vkCreateShaderModule(FVulkan::GetDevice(), &shaderModuleCreateInfo, nullptr, &ShaderModule) != VK_SUCCESS)
 	{
@@ -50,6 +66,20 @@ bool FShader::CreateModule(std::vector<uint32_t> SPIRV)
 		return false;
 	}
 	return true;
+}
+
+void FShader::Release()
+{
+	if(IsCompiled())
+	{
+		vkDestroyShaderModule(FVulkan::GetDevice(), ShaderModule, nullptr);
+		ShaderModule = VK_NULL_HANDLE;
+	}
+}
+
+VkShaderModule& FShader::GetShader()
+{
+	return ShaderModule;
 }
 
 FShaderCompiler::FShaderCompiler()
@@ -75,18 +105,25 @@ FShaderCompiler* FShaderCompiler::Get()
 void FShaderCompiler::CompileShaders()
 {
 	VK_LOG(LOG_INFO, "Compiling shaders: %i", GlobalShaders.size());
-	for(auto& Shader : GlobalShaders)
+	for(const std::pair<const std::type_index, std::shared_ptr<FShader>>& Elem : GlobalShaders)
 	{
+		std::shared_ptr<FShader> Shader = Elem.second;
 		if(!Shader->IsCompiled())
 		{
-			if(Shader->GetCompilerType() == HLSL)
-			{
-				CompileHLSL(Shader);
-			}
-			else
-			{
-				CompileGLSL(Shader);
-			}
+			Compile(Shader);
+		}
+	}
+}
+
+void FShaderCompiler::CleanUpShaders() const
+{
+	VK_LOG(LOG_INFO, "Cleaning global shaders: %i", GlobalShaders.size());
+	for(const std::pair<const std::type_index, std::shared_ptr<FShader>>& Elem : GlobalShaders)
+	{
+		std::shared_ptr<FShader> Shader = Elem.second;
+		if(Shader->IsCompiled())
+		{
+			Shader->Release();
 		}
 	}
 }
@@ -196,7 +233,7 @@ void InitResources(TBuiltInResource& Resources)
 		Resources.limits.generalConstantMatrixVectorIndexing = 1;
 }
 
-void FShaderCompiler::CompileGLSL(std::unique_ptr<FShader>& Shader)
+void FShaderCompiler::Compile(std::shared_ptr<FShader>& Shader)
 {
 	std::string ShaderDirectory = FPaths::GetShaderDirectory();
 	std::string FilePath = FPaths::GetShaderDirectory() + Shader->GetSource();
@@ -208,22 +245,42 @@ void FShaderCompiler::CompileGLSL(std::unique_ptr<FShader>& Shader)
 	}
 
 	std::string SourceCode = FPaths::LoadFileToString(FilePath);
-	const char* shaderStrings[1];
-	shaderStrings[0] = SourceCode.c_str();
+	const char* shaderStrings = SourceCode.c_str();
+	glslang::EShSource SourceType = Shader->GetCompilerType() == ECompilerType::GLSL ? glslang::EShSourceGlsl : glslang::EShSourceHlsl;
+
+	glslang::EShTargetClientVersion Version;
+	switch (FVulkan::GetMinorVersion())
+	{
+	case 1:
+		Version = glslang::EShTargetVulkan_1_1;
+		break;
+	case 2:
+		Version = glslang::EShTargetVulkan_1_2;
+		break;
+	case 3:
+		Version = glslang::EShTargetVulkan_1_3;
+		break;
+	default:
+		Version = glslang::EShTargetVulkan_1_3;
+	}
 	
 	glslang::TShader shader(Shader->GetShaderType());
-	shader.setStrings(shaderStrings, 1);
+	shader.setEnvClient(glslang::EShClient::EShClientVulkan, Version);
+	shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
+	shader.setStrings(&shaderStrings, 1);
+	shader.setEntryPoint(Shader->GetEntryPoint().c_str());
+	shader.setEnvInput(SourceType, Shader->GetShaderType(), glslang::EShClientVulkan, 460);
 
 	TBuiltInResource Resources = {};
 	InitResources(Resources);
-	if (!shader.parse(&Resources , 450, true, EShMsgDefault))
+	if (!shader.parse(&Resources , 460, true, EShMsgDefault))
 	{
 		std::string Message = "Shader compile error:\n";
 		Message += shader.getInfoLog();
 		int result = MessageBoxA(NULL, Message.c_str(), "Shader compilation retry", MB_ICONQUESTION | MB_YESNO);
 		if( result == IDYES)
 		{
-			CompileGLSL(Shader);
+			Compile(Shader);
 		}
 		else
 		{
@@ -243,103 +300,6 @@ void FShaderCompiler::CompileGLSL(std::unique_ptr<FShader>& Shader)
 
 	std::vector<uint32_t> spirv;
 	glslang::GlslangToSpv(*program.getIntermediate(Shader->GetShaderType()), spirv);
-	if(Shader->CreateModule(spirv))
-	{
-		VK_LOG(LOG_SUCCESS, "Compiled shader: %s", FPaths::GetFileName(FilePath).c_str());
-	}
-}
-
-void FShaderCompiler::CompileHLSL(std::unique_ptr<FShader>& Shader)
-{
-	std::string ShaderDirectory = FPaths::GetShaderDirectory();
-	std::string FilePath = FPaths::GetShaderDirectory() + Shader->GetSource() + ".hlsl";
-	
-	if(!FPaths::FileExists(FilePath))
-	{
-		VK_LOG(LOG_WARNING, "File shader path does not exist %s", FilePath.c_str());
-		return;
-	}
-
-	std::string SourceCode = FPaths::LoadFileToString(FilePath);
-
-	auto StringConv([](const std::string& str)
-	{
-		std::wstring wstr(str.begin(), str.end());
-		return wstr;
-	});
-
-	auto GetTarget([](EShLanguage Type)
-	{
-		switch (Type)
-		{
-		case EShLangVertex: return "vs_6_0";
-		case EShLangFragment: return "ps_6_0";
-		case EShLangCompute: return "vs_6_0";
-		}
-		return "";
-	});
-
-	std::wstring wSource = StringConv(SourceCode);
-	std::wstring wTargetProfile = StringConv(GetTarget(Shader->GetShaderType()));
-	
-	ComPtr<IDxcCompiler> compiler;
-	ComPtr<IDxcLibrary> library;
-	ComPtr<IDxcBlobEncoding> sourceBlob;
-	ComPtr<IDxcOperationResult> result;
-
-	// Initialize DXC
-	DxcCreateInstance(CLSID_DxcCompiler, __uuidof(IDxcCompiler), (void**)compiler.GetAddressOf());
-	DxcCreateInstance(CLSID_DxcLibrary, __uuidof(IDxcLibrary), (void**)library.GetAddressOf());
-
-	// Create blob from the shader source
-	library->CreateBlobFromFile(wSource.c_str(), nullptr, &sourceBlob);
-
-	// Compile the shader
-	std::vector<LPCWSTR> arguments = {
-		wSource.c_str(),
-		L"-T", wTargetProfile.c_str(),
-		L"-spirv",
-		L"-fvk-use-dx-layout",
-	};
-
-	compiler->Compile(
-		sourceBlob.Get(),
-		wSource.c_str(),
-		L"main",
-		wTargetProfile.c_str(),
-		arguments.data(),
-		(UINT)arguments.size(),
-		nullptr,
-		0,
-		nullptr,
-		&result
-	);
-
-	// Check for compilation errors
-	HRESULT hr;
-	result->GetStatus(&hr);
-	if (FAILED(hr)) {
-		ComPtr<IDxcBlobEncoding> errors;
-		result->GetErrorBuffer(&errors);
-		std::wstring Error = (const wchar_t*)errors->GetBufferPointer();
-		int result2 = MessageBox(NULL, Error.c_str(), L"Shader compilation retry", MB_ICONQUESTION | MB_YESNO);
-		if( result2 == IDYES)
-		{
-			CompileHLSL(Shader);
-		}
-		else
-		{
-			checkf(0, "Failing compiling shader, no retry was selected, terminating program");
-		}
-		return;
-	}
-
-	// Get the compiled SPIR-V blob
-	ComPtr<IDxcBlob> shader;
-	result->GetResult(&shader);
-
-	std::vector<uint32_t> spirv(shader->GetBufferSize() / 4);
-	memcpy(spirv.data(), shader->GetBufferPointer(), shader->GetBufferSize());
 	if(Shader->CreateModule(spirv))
 	{
 		VK_LOG(LOG_SUCCESS, "Compiled shader: %s", FPaths::GetFileName(FilePath).c_str());

@@ -1,7 +1,7 @@
 ﻿#pragma once
 #include <string>
 #include <vector>
-#include "Render/RenderResources.h"
+#include "Render/VertexInputs.h"
 
 class FFbxImport
 {

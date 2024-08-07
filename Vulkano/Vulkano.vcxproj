@@ -165,8 +165,11 @@
     <ClCompile Include="Render\RenderResources.cpp" />
     <ClCompile Include="Render\RenderWindow.cpp" />
     <ClCompile Include="Render\Shader.cpp" />
+    <ClCompile Include="Render\VertexInputs.cpp" />
     <ClCompile Include="Render\VulkanInterface.cpp" />
     <ClCompile Include="Render\VulkanSwapChain.cpp" />
+    <None Include="Shaders\HLSL\Defaults\DefaultPixel.hlsl" />
+    <None Include="Shaders\HLSL\Defaults\DefaultVertex.hlsl" />
     <ClCompile Include="ThirdParty\imgui\imgui.cpp" />
     <ClCompile Include="ThirdParty\imgui\imgui_demo.cpp" />
     <ClCompile Include="ThirdParty\imgui\imgui_draw.cpp" />
@@ -185,6 +188,7 @@
     <ClInclude Include="Render\RenderResources.h" />
     <ClInclude Include="Render\RenderWindow.h" />
     <ClInclude Include="Render\Shader.h" />
+    <ClInclude Include="Render\VertexInputs.h" />
     <ClInclude Include="Render\VulkanInterface.h" />
     <ClInclude Include="Render\VulkanSwapChain.h" />
     <ClInclude Include="resource.h" />
@@ -221,9 +225,6 @@
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="ThirdParty\imgui\misc\debuggers\imgui.natvis" />
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Shaders\HLSL\Defaults\" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

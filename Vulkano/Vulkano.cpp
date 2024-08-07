@@ -33,6 +33,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     Renderer.Shutdown();
     RenderWindow.Shutdown();
 
+    // Destroy all shaders
+    FShaderCompiler::Get()->CleanUpShaders();
+
 #ifdef _DEBUG
     FVulkan::DestroyVulkanDebugLayer();
 #endif

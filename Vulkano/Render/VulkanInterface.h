@@ -24,6 +24,8 @@ public:
     static VkInstance& GetInstance();
     static VkDevice& GetDevice();
     static VkPhysicalDevice& GetPhysicalDevice();
+    static uint32_t GetMajorVersion();
+    static uint32_t GetMinorVersion();
     static uint32_t FindMemoryType(const VkPhysicalDevice& PhysicalDevice, uint32_t TypeFilter, VkMemoryPropertyFlags MemoryPropertyFlags);
     
     // Resources
@@ -36,6 +38,9 @@ public:
     template<typename StructType>
     static FVulkanBuffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     static void SetBufferData(FVulkanBuffer& Buffer, const void* BufferData, size_t BufferSize);
+
+    static std::shared_ptr<FRenderPass> CreateRenderPass(const std::vector<FVulkanTexture>& Attachments, VkAttachmentLoadOp LoadingOperation, const FVulkanTexture& DepthStencil, VkAttachmentLoadOp DepthLoadingOperation, const std::string& PassName);
+    static std::shared_ptr<FGraphicsPipeline> CreateGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer, std::shared_ptr<FRenderPass> RenderPass);
     
 private:
     static void SelectPhysicalDevice();
@@ -55,4 +60,6 @@ private:
     static VkQueue GraphicsQueue;
     static VkQueue PresentQueue;
     static VkQueue ComputeQueue;
+    static uint32_t MajorVersion;
+    static uint32_t MinorVersion;
 };
