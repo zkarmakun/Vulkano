@@ -31,7 +31,7 @@ private:
     std::vector<VkImage> SwapChainImages;
     std::vector<VkImageView> SwapChainImagesViews;
 
-    FVulkanTexture DepthStencil;
+    std::shared_ptr<FVulkanTexture> DepthStencil;
     
     VkFormat DepthFormat;
     VkRenderPass RenderPass = VK_NULL_HANDLE;

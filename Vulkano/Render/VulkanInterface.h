@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include <map>
 #include <string>
 #include <vector>
 #include "vulkan/vulkan_core.h"
@@ -32,20 +33,27 @@ public:
     static void CreateImage(uint32_t Width, uint32_t Height, VkFormat Format, VkImageTiling Tiling, VkImageUsageFlags ImageUsageFlags, VkMemoryPropertyFlags MemoryPropertyFlags, VkImage& Image, VkDeviceMemory& ImageMemory);
     static VkImageView CreateImageView(VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlags);
     
-    static FVulkanTexture CreateTexture(int X, int Y, VkFormat Format, VkImageUsageFlags Flags, VkMemoryPropertyFlags MemoryFlags, std::string TextureName = "Texture", VkImageTiling Tilling = VK_IMAGE_TILING_LINEAR, VkImageAspectFlags AspectFlags = VK_IMAGE_ASPECT_COLOR_BIT);
-    static void ReleaseTexture(FVulkanTexture& Texture);
+    static std::shared_ptr<FVulkanTexture> CreateTexture(int X, int Y, VkFormat Format, VkImageUsageFlags Flags, VkMemoryPropertyFlags MemoryFlags, std::string TextureName = "Texture", VkImageTiling Tilling = VK_IMAGE_TILING_LINEAR, VkImageAspectFlags AspectFlags = VK_IMAGE_ASPECT_COLOR_BIT);
+    static void ReleaseTexture(std::shared_ptr<FVulkanTexture>& Texture);
     
     template<typename StructType>
     static FVulkanBuffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
     static void SetBufferData(FVulkanBuffer& Buffer, const void* BufferData, size_t BufferSize);
 
-    static std::shared_ptr<FRenderPass> CreateRenderPass(const std::vector<FVulkanTexture>& Attachments, VkAttachmentLoadOp LoadingOperation, const FVulkanTexture& DepthStencil, VkAttachmentLoadOp DepthLoadingOperation, const std::string& PassName);
-    static std::shared_ptr<FGraphicsPipeline> CreateGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer, std::shared_ptr<FRenderPass> RenderPass);
-    
+    static std::shared_ptr<FRenderPass> BeginRenderPass(const FRenderPassInfo& RenderPassInfo, VkExtent2D ViewSize, const std::string& RenderPassName);
+    static std::shared_ptr<FGraphicsPipeline> SetGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer);
+    static void SetScissorRect(bool bEnabled, float MinX, float MinY, float MaxX, float MaxY);
+    static void SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ);
+    static void EndRenderPass();
+
 private:
+    static std::shared_ptr<FRenderPass> GetOrCreateRenderPass(const FRenderPassInfo& RenderPassInfo,  VkExtent2D ViewSize, const std::string& RenderPassName);
     static void SelectPhysicalDevice();
     
 private:
+    static std::map<std::size_t, std::shared_ptr<FRenderPass>> RenderPasses;
+    static std::map<std::size_t, std::shared_ptr<FGraphicsPipeline>> PSOs;
+
     static VkInstance Instance;
     static VkDevice Device;
     static VkPhysicalDevice PhysicalDevice;

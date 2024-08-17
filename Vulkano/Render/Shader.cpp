@@ -18,24 +18,33 @@ FShader::~FShader()
 	Release();
 }
 
-std::string FShader::GetSource()
+void FShader::SetShaderIntrinsics(ECompilerType InCompilerType, const std::string& Source, const std::string& Entry,
+	EShLanguage InShaderType)
 {
-	return "";
+	CompilerType = InCompilerType;
+	SourcePath = Source;
+	EntryPoint = Entry;
+	ShaderType = InShaderType;
+}
+
+std::string FShader::GetSource() const
+{
+	return SourcePath;
 }
 
 EShLanguage FShader::GetShaderType() const
 {
-	return EShLangCompute;
+	return ShaderType;
 }
 
 ECompilerType FShader::GetCompilerType() const
 {
-	return GLSL;
+	return CompilerType;
 }
 
-std::string FShader::GetEntryPoint() const
+const std::string& FShader::GetEntryPoint() const
 {
-	return "main";
+	return EntryPoint;
 }
 
 bool FShader::IsCompiled() const
@@ -240,8 +249,7 @@ void FShaderCompiler::Compile(std::shared_ptr<FShader>& Shader)
 	
 	if(!FPaths::FileExists(FilePath))
 	{
-		VK_LOG(LOG_WARNING, "File shader path does not exist %s", FilePath.c_str());
-		return;
+		fatal("File shader path does not exist %s", FilePath.c_str());
 	}
 
 	std::string SourceCode = FPaths::LoadFileToString(FilePath);
@@ -284,7 +292,7 @@ void FShaderCompiler::Compile(std::shared_ptr<FShader>& Shader)
 		}
 		else
 		{
-			checkf(0, "Failing compiling shader, no retry was selected, terminating program");
+			fatal("Failing compiling shader, no retry was selected, terminating program");
 		}
 		return;
 	}

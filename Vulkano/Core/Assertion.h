@@ -21,5 +21,5 @@
 
 #define fatal(text, ...) \
     VK_LOG(LOG_ERROR, text, __VA_ARGS__); \
-    std::terminate(); 
+    std::terminate()
     

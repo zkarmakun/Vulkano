@@ -18,10 +18,12 @@ class FShader
 public:
     FShader();
     ~FShader();
-    virtual std::string GetSource();
-    virtual EShLanguage GetShaderType() const;
-    virtual ECompilerType GetCompilerType() const;
-    virtual std::string GetEntryPoint() const;
+    void SetShaderIntrinsics(ECompilerType InCompilerType, const std::string& Source, const std::string& Entry, EShLanguage InShaderType);
+    
+    virtual std::string GetSource() const;
+    EShLanguage GetShaderType() const;
+    ECompilerType GetCompilerType() const;
+    const std::string& GetEntryPoint() const;
     bool IsCompiled() const;
     bool CreateModule(std::vector<uint32_t> SPIRV);
     void Release();
@@ -29,22 +31,26 @@ public:
 
 protected:
     VkShaderModule ShaderModule = VK_NULL_HANDLE;
+    std::string EntryPoint = "main";
+    std::string SourcePath;
+    ECompilerType CompilerType = GLSL;
+    EShLanguage ShaderType = EShLangVertex;
 };
 
 class FDefaultVertexShader : public FShader
 {
 public:
-    virtual ECompilerType GetCompilerType() const override { return HLSL; }
+    /*virtual ECompilerType GetCompilerType() const override { return HLSL; }
     virtual std::string GetSource() override { return "/HLSL/Defaults/DefaultVertex.hlsl"; }
-    virtual EShLanguage GetShaderType() const override { return EShLangVertex; }
+    virtual EShLanguage GetShaderType() const override { return EShLangVertex; }*/
 };
 
 class FDefaultPixelShader : public FShader
 {
 public:
-    virtual ECompilerType GetCompilerType() const override { return HLSL; }
+    /*virtual ECompilerType GetCompilerType() const override { return HLSL; }
     virtual std::string GetSource() override { return "/HLSL/Defaults/DefaultPixel.hlsl"; }
-    virtual EShLanguage GetShaderType() const override { return EShLangFragment; }
+    virtual EShLanguage GetShaderType() const override { return EShLangFragment; }*/
 };
 
 
@@ -58,7 +64,7 @@ public:
     void CompileShaders();
     void CleanUpShaders() const;
     template<typename Shader>
-    void AddShader();
+    void AddShader(ECompilerType CompilerType, const std::string& Source, const std::string& Entry, EShLanguage ShaderType);
 
     template <typename Shader>
     std::shared_ptr<Shader> FindShader();
@@ -70,9 +76,10 @@ private:
 };
 
 template <typename Shader>
-void FShaderCompiler::AddShader()
+void FShaderCompiler::AddShader(ECompilerType CompilerType, const std::string& Source, const std::string& Entry, EShLanguage ShaderType)
 {
     GlobalShaders[typeid(Shader)] = std::make_shared<Shader>();
+    GlobalShaders[typeid(Shader)]->SetShaderIntrinsics(CompilerType, Source, Entry, ShaderType);
 }
 
 template <typename Shader>

@@ -300,7 +300,7 @@ void FVulkanSwapChain::CreateFrameBuffers()
 	{
 		std::vector<VkImageView> attachments(2);
 		attachments[0] = SwapChainImagesViews[i];
-		attachments[1] = DepthStencil.ImageView;
+		attachments[1] = DepthStencil->ImageView;
 
 		VkFramebufferCreateInfo framebufferInfo = {};
 		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;

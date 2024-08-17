@@ -16,8 +16,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     FVulkan::CreateVulkanDevice(hInstance);
 
     // Compile all default shaders
-    FShaderCompiler::Get()->AddShader<FDefaultVertexShader>();
-    FShaderCompiler::Get()->AddShader<FDefaultPixelShader>();
+    FShaderCompiler::Get()->AddShader<FDefaultVertexShader>(HLSL, "/HLSL/Defaults/DefaultVertex.hlsl", "main", EShLangVertex);
+    FShaderCompiler::Get()->AddShader<FDefaultPixelShader>(HLSL, "/HLSL/Defaults/DefaultPixel.hlsl", "main", EShLangFragment);
     FShaderCompiler::Get()->CompileShaders();
 
     // Create window and attach renderer

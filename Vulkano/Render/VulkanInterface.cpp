@@ -10,6 +10,9 @@
 #include "Core/Assertion.h"
 #include "Core/VulkanoLog.h"
 
+std::map<std::size_t, std::shared_ptr<FRenderPass>>         FVulkan::RenderPasses;
+std::map<std::size_t, std::shared_ptr<FGraphicsPipeline>>   FVulkan::PSOs;
+
 VkInstance          FVulkan::Instance = { VK_NULL_HANDLE };
 VkDevice            FVulkan::Device = { VK_NULL_HANDLE };
 VkPhysicalDevice    FVulkan::PhysicalDevice = { VK_NULL_HANDLE };
@@ -336,6 +339,26 @@ void FVulkan::CreateVulkanDevice(HINSTANCE hInstance)
 
 void FVulkan::ExitVulkan()
 {
+    for(auto& Elem : PSOs)
+    {
+        if(std::shared_ptr<FGraphicsPipeline> It = Elem.second)
+        {
+            It->Release();
+            It.reset();
+        }
+    }
+    PSOs.clear();
+
+    for(auto& Elem : RenderPasses)
+    {
+        if(std::shared_ptr<FRenderPass> It = Elem.second)
+        {
+            It->Release();
+            It.reset();
+        }
+    }
+    RenderPasses.clear();
+    
     VKGlobals::CleanupGlobalResources();
     
     if (Device != VK_NULL_HANDLE)
@@ -528,14 +551,14 @@ VkImageView FVulkan::CreateImageView(VkImage Image, VkFormat Format, VkImageAspe
     return imageView;
 }
 
-FVulkanTexture FVulkan::CreateTexture(int X, int Y, VkFormat Format, VkImageUsageFlags Flags, VkMemoryPropertyFlags MemoryFlags, std::string TextureName, VkImageTiling Tilling, VkImageAspectFlags AspectFlags)
+std::shared_ptr<FVulkanTexture> FVulkan::CreateTexture(int X, int Y, VkFormat Format, VkImageUsageFlags Flags, VkMemoryPropertyFlags MemoryFlags, std::string TextureName, VkImageTiling Tilling, VkImageAspectFlags AspectFlags)
 {
-    FVulkanTexture Texture;
-    Texture.Format = Format;
-    Texture.SizeX = X;
-    Texture.SizeY = Y;
-    Texture.ImageTilling = Tilling;
-    Texture.Name = TextureName;
+    std::shared_ptr<FVulkanTexture> Texture = std::make_shared<FVulkanTexture>();
+    Texture->Format = Format;
+    Texture->SizeX = X;
+    Texture->SizeY = Y;
+    Texture->ImageTilling = Tilling;
+    Texture->Name = TextureName;
     
     VkImageCreateInfo imageInfo = {};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -552,29 +575,29 @@ FVulkanTexture FVulkan::CreateTexture(int X, int Y, VkFormat Format, VkImageUsag
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(Device, &imageInfo, nullptr, &Texture.Image) != VK_SUCCESS)
+    if (vkCreateImage(Device, &imageInfo, nullptr, &Texture->Image) != VK_SUCCESS)
     {
         checkf(0, "Fail creating texture");
     }
 
     VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(Device, Texture.Image, &memRequirements);
+    vkGetImageMemoryRequirements(Device, Texture->Image, &memRequirements);
 
     VkMemoryAllocateInfo allocInfo = {};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = FindMemoryType(PhysicalDevice, memRequirements.memoryTypeBits, MemoryFlags);
 
-    if (vkAllocateMemory(Device, &allocInfo, nullptr, &Texture.ImageMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(Device, &allocInfo, nullptr, &Texture->ImageMemory) != VK_SUCCESS)
     {
         checkf(0, "Fail allocation memory for texture");
     }
 
-    vkBindImageMemory(Device, Texture.Image, Texture.ImageMemory, 0);
+    vkBindImageMemory(Device, Texture->Image, Texture->ImageMemory, 0);
 
     VkImageViewCreateInfo viewInfo = {};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = Texture.Image;
+    viewInfo.image = Texture->Image;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format = Format;
     viewInfo.subresourceRange.aspectMask = AspectFlags;
@@ -583,7 +606,7 @@ FVulkanTexture FVulkan::CreateTexture(int X, int Y, VkFormat Format, VkImageUsag
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount = 1;
     
-    if (vkCreateImageView(Device, &viewInfo, nullptr, &Texture.ImageView) != VK_SUCCESS)
+    if (vkCreateImageView(Device, &viewInfo, nullptr, &Texture->ImageView) != VK_SUCCESS)
     {
         checkf(0, "Fail creating image view");
     }
@@ -591,28 +614,35 @@ FVulkanTexture FVulkan::CreateTexture(int X, int Y, VkFormat Format, VkImageUsag
     return Texture;
 }
 
-void FVulkan::ReleaseTexture(FVulkanTexture& Texture)
+void FVulkan::ReleaseTexture(std::shared_ptr<FVulkanTexture>& Texture)
 {
-    // Destroy Image View
-    if (Texture.ImageView != VK_NULL_HANDLE)
+    if(!Texture)
     {
-        vkDestroyImageView(Device, Texture.ImageView, nullptr);
-        Texture.ImageView = VK_NULL_HANDLE;
+        return;
+    }
+    
+    // Destroy Image View
+    if (Texture->ImageView != VK_NULL_HANDLE)
+    {
+        vkDestroyImageView(Device, Texture->ImageView, nullptr);
+        Texture->ImageView = VK_NULL_HANDLE;
     }
 
     // Destroy Image
-    if (Texture.Image != VK_NULL_HANDLE)
+    if (Texture->Image != VK_NULL_HANDLE)
     {
-        vkDestroyImage(Device, Texture.Image, nullptr);
-        Texture.Image = VK_NULL_HANDLE;
+        vkDestroyImage(Device, Texture->Image, nullptr);
+        Texture->Image = VK_NULL_HANDLE;
     }
 
     // Free Memory
-    if (Texture.ImageMemory != VK_NULL_HANDLE)
+    if (Texture->ImageMemory != VK_NULL_HANDLE)
     {
-        vkFreeMemory(Device, Texture.ImageMemory, nullptr);
-        Texture.ImageMemory = VK_NULL_HANDLE;
+        vkFreeMemory(Device, Texture->ImageMemory, nullptr);
+        Texture->ImageMemory = VK_NULL_HANDLE;
     }
+
+    Texture.reset();
 }
 
 template <typename StructType>
@@ -628,7 +658,7 @@ FVulkanBuffer FVulkan::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 
     if (vkCreateBuffer(Device, &BufferCreateInfo, nullptr, &Result.Buffer) != VK_SUCCESS)
     {
-        checkf(0, "Fail creating buffer");
+        fatal("FVulkan::CreateBuffer Fail creating buffer");
     }
 
     VkMemoryRequirements memRequirements;
@@ -641,7 +671,7 @@ FVulkanBuffer FVulkan::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 
     if (vkAllocateMemory(Device, &allocInfo, nullptr, &Result.BufferMemory) != VK_SUCCESS)
     {
-        checkf(0, "Fail allocating memory for buffer");
+        fatal("FVulkan::CreateBuffer Fail allocating memory for buffer");
     }
 
     vkBindBufferMemory(Device, Result.Buffer, Result.BufferMemory, 0);
@@ -656,19 +686,44 @@ void FVulkan::SetBufferData(FVulkanBuffer& Buffer, const void* BufferData, size_
     vkUnmapMemory(Device, Buffer.BufferMemory);
 }
 
-std::shared_ptr<FRenderPass> FVulkan::CreateRenderPass(const std::vector<FVulkanTexture>& Attachments, VkAttachmentLoadOp LoadingOperation, const FVulkanTexture& DepthStencil, VkAttachmentLoadOp DepthLoadingOperation, const std::string& PassName)
+std::size_t GenerateUniqueId(const std::string& input) {
+    return std::hash<std::string>{}(input);
+}
+
+std::shared_ptr<FRenderPass> FVulkan::BeginRenderPass(const FRenderPassInfo& RenderPassInfo, VkExtent2D ViewSize, const std::string& RenderPassName)
 {
-    if(Attachments.empty() || Attachments.size() > 8)
+    std::shared_ptr<FRenderPass> RenderPass = GetOrCreateRenderPass(RenderPassInfo, ViewSize, RenderPassName);
+
+    /*VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = RenderPass->RenderPass;
+    renderPassInfo.framebuffer = RenderPass->FrameBuffer;
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = ViewSize;
+    
+    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+    
+    vkCmdBeginRenderPass(offscreenCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);*/
+
+    return RenderPass;
+}
+
+std::shared_ptr<FRenderPass> FVulkan::GetOrCreateRenderPass(const FRenderPassInfo& RenderPassInfo,  VkExtent2D ViewSize, const std::string& RenderPassName)
+{
+    std::size_t PassId = GenerateUniqueId(RenderPassName);
+    auto it = RenderPasses.find(PassId);
+    if (it != RenderPasses.end())
     {
-        VK_LOG(LOG_ERROR, "FVulkan::CreateRenderPass Failed creating render pass, invalid attachments arguments");
-        return nullptr;
+        return it->second; // Return the shared_ptr to FRenderPass
     }
 
-    auto SetupAttachment_Lambda([](VkAttachmentDescription& Attach, VkAttachmentLoadOp LoadOp, VkFormat Format, VkImageLayout FinalLayout)
+    auto SetupAttachment_Lambda([](VkAttachmentDescription& Attach, VkAttachmentLoadOp LoadOp, VkAttachmentStoreOp StoreOp, VkFormat Format, VkImageLayout FinalLayout)
     {
         Attach.samples = VK_SAMPLE_COUNT_1_BIT;
         Attach.loadOp = LoadOp;
-        Attach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        Attach.storeOp = StoreOp;
         Attach.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         Attach.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         Attach.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -678,14 +733,26 @@ std::shared_ptr<FRenderPass> FVulkan::CreateRenderPass(const std::vector<FVulkan
 
     std::vector<VkAttachmentDescription> AttachmentDescriptions;
     std::vector<VkAttachmentReference> ColorReferences;
-    for (uint32_t i = 0; i < Attachments.size(); ++i)
+    std::vector<VkImageView> Attachments;
+    for (uint32_t i = 0; i < RenderPassInfo.ColorRenderTargets.size(); ++i)
     {
+        if(!RenderPassInfo.ColorRenderTargets[i].Target)
+        {
+            continue;
+        }
+        
         VkAttachmentDescription& Attach = AttachmentDescriptions.emplace_back();
-        SetupAttachment_Lambda(Attach, LoadingOperation, Attachments[i].Format, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        SetupAttachment_Lambda(
+            Attach,
+            RenderPassInfo.ColorRenderTargets[i].Load,
+            RenderPassInfo.ColorRenderTargets[i].Store,
+            RenderPassInfo.ColorRenderTargets[i].Target->Format,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
         VkAttachmentReference& Reference = ColorReferences.emplace_back();
         Reference.attachment = i;
         Reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        Attachments.push_back(RenderPassInfo.ColorRenderTargets[i].Target->ImageView);
     }
 
     VkSubpassDescription subpass = {};
@@ -693,14 +760,21 @@ std::shared_ptr<FRenderPass> FVulkan::CreateRenderPass(const std::vector<FVulkan
     subpass.pColorAttachments = ColorReferences.data();
     subpass.colorAttachmentCount = static_cast<uint32_t>(ColorReferences.size());
     
-    VkAttachmentReference depthReference = {};
-    if(DepthStencil.Valid())
+    if(RenderPassInfo.DepthStencilRenderTarget.Target)
     {
+        VkAttachmentReference depthReference = {};
         VkAttachmentDescription& Attach = AttachmentDescriptions.emplace_back();
-        SetupAttachment_Lambda(Attach, DepthLoadingOperation, DepthStencil.Format, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        SetupAttachment_Lambda(
+            Attach,
+            RenderPassInfo.DepthStencilRenderTarget.Load,
+            RenderPassInfo.DepthStencilRenderTarget.Store,
+            RenderPassInfo.DepthStencilRenderTarget.Target->Format,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         depthReference.attachment = static_cast<uint32_t>(AttachmentDescriptions.size()) - 1;
         depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         subpass.pDepthStencilAttachment = &depthReference;
+
+        Attachments.push_back(RenderPassInfo.DepthStencilRenderTarget.Target->ImageView);
     }
 
     VkRenderPassCreateInfo renderPassInfo = {};
@@ -714,21 +788,45 @@ std::shared_ptr<FRenderPass> FVulkan::CreateRenderPass(const std::vector<FVulkan
     if(vkCreateRenderPass(Device, &renderPassInfo, nullptr, &RenderPass) == VK_SUCCESS)
     {
         std::shared_ptr<FRenderPass> NewRenderPass = std::make_shared<FRenderPass>();
-        NewRenderPass->RenderPassName = PassName;
+        NewRenderPass->RenderPassName = RenderPassName;
         NewRenderPass->RenderPass = RenderPass;
+        
+        VkFramebufferCreateInfo framebufferInfo = {};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = NewRenderPass->RenderPass;
+        framebufferInfo.attachmentCount = static_cast<uint32_t>(Attachments.size());
+        framebufferInfo.pAttachments = Attachments.data();
+        framebufferInfo.width = ViewSize.width;
+        framebufferInfo.height = ViewSize.height;
+        framebufferInfo.layers = 1;
+
+        if (vkCreateFramebuffer(GetDevice(), &framebufferInfo, nullptr, &NewRenderPass->FrameBuffer) != VK_SUCCESS)
+        {
+            fatal("Failed to create framebuffer %s", RenderPassName.c_str());
+        }
+
+        RenderPasses[PassId] = NewRenderPass;
+        VK_LOG(LOG_SUCCESS, "Creating render pass: %s", RenderPassName.c_str());
         return NewRenderPass;
     }
-    
-    return nullptr;
+
+    fatal("Fail creating render pass %s", RenderPassName.c_str());
 }
 
-std::shared_ptr<FGraphicsPipeline> FVulkan::CreateGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer, std::shared_ptr<FRenderPass> RenderPass)
+std::shared_ptr<FGraphicsPipeline> FVulkan::SetGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer)
 {
     // We need at least vertex and pixel shader
-    if(!PSOInitializer.VertexShader || !PSOInitializer.PixelShader || !RenderPass)
+    if(!PSOInitializer.VertexShader || !PSOInitializer.PixelShader || !PSOInitializer.RenderPass)
     {
-        VK_LOG(LOG_ERROR, "Failied creating graphics pipelines, invalid shader or render pass");
-        return nullptr;
+        fatal("FVulkan::SetGraphicsPipeline Failed creating graphics pipelines, invalid shader or render pass");
+    }
+
+    // Will use the same id as the render pass
+    std::size_t Id = GenerateUniqueId(PSOInitializer.RenderPass->RenderPassName);
+    auto it = PSOs.find(Id);
+    if (it != PSOs.end())
+    {
+        return it->second;
     }
 
     std::vector<VkPipelineShaderStageCreateInfo> ShaderStages;
@@ -802,14 +900,12 @@ std::shared_ptr<FGraphicsPipeline> FVulkan::CreateGraphicsPipeline(const FGraphi
     VkPipelineLayout PipeLineLayout = VK_NULL_HANDLE;
     if (vkCreatePipelineLayout(FVulkan::GetDevice(), &pipelineLayoutInfo, nullptr, &PipeLineLayout) != VK_SUCCESS)
     {
-        VK_LOG(LOG_ERROR, "Failed creating pipeline layout");
-        return nullptr;
+        fatal("FVulkan::SetGraphicsPipeline Failed creating pipeline layout");
     }
 
     if(!PSOInitializer.VertexInput)
     {
-        VK_LOG(LOG_ERROR, "No valid vertex input creating the graphics pipeline");
-        return nullptr;
+        fatal("FVulkan::SetGraphicsPipeline No valid vertex input creating the graphics pipeline");
     }
 
     VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -825,19 +921,36 @@ std::shared_ptr<FGraphicsPipeline> FVulkan::CreateGraphicsPipeline(const FGraphi
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = PipeLineLayout;
-    /*pipelineInfo.renderPass = renderPass;
-    pipelineInfo.subpass = 0;*/
+    pipelineInfo.renderPass = PSOInitializer.RenderPass->RenderPass;
+    pipelineInfo.subpass = 0;
 
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
     pipelineInfo.basePipelineIndex = -1; // Optional
 
-    VkPipeline GraphicsPipeline;
+    VkPipeline GraphicsPipeline = VK_NULL_HANDLE;
     if (vkCreateGraphicsPipelines(FVulkan::GetDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &GraphicsPipeline) != VK_SUCCESS)
     {
-        VK_LOG(LOG_ERROR, "failed to create graphics pipeline");
-        return nullptr;
+        fatal("FVulkan::SetGraphicsPipeline failed to create graphics pipeline");
     }
 
     std::shared_ptr<FGraphicsPipeline> NewGraphics = std::make_shared<FGraphicsPipeline>(GraphicsPipeline, PipeLineLayout);
+    PSOs[Id] = NewGraphics;
+    VK_LOG(LOG_SUCCESS, "Creating graphics PSO render pass: %s", PSOInitializer.RenderPass->RenderPassName.c_str());
     return NewGraphics;
 }
+
+void FVulkan::SetScissorRect(bool bEnabled, float MinX, float MinY, float MaxX, float MaxY)
+{
+    
+}
+
+void FVulkan::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ)
+{
+    
+}
+
+void FVulkan::EndRenderPass()
+{
+    
+}
+

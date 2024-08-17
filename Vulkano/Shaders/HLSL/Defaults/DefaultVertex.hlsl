@@ -1,11 +1,11 @@
 ﻿
 
-cbuffer UBO : register(b0)
+/*cbuffer WEBOS : register(b0)
 {
     float4x4 projectionMatrix;
     float4x4 modelMatrix;
     float4x4 viewMatrix;
-};
+};*/
 
 struct VSInput
 {
@@ -23,6 +23,7 @@ VSOutput main(VSInput input)
 {
     VSOutput output;
     output.outColor = input.inColor;
-    output.pos = mul(projectionMatrix, mul(viewMatrix, mul(modelMatrix, float4(input.inPos, 1.0))));
+    //output.pos = mul(projectionMatrix, mul(viewMatrix, mul(modelMatrix, float4(input.inPos, 1.0))));
+    output.pos = float4(input.inPos, 1.0);
     return output;
 }
