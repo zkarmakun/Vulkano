@@ -1,9 +1,6 @@
-﻿struct PSInput
+﻿void main(
+    in float2 UV : TEXCOORD0,
+    out float4 OutColor : SV_Target0)
 {
-    float3 inColor : COLOR;
-};
-
-float4 main(PSInput input) : SV_TARGET
-{
-    return float4(input.inColor, 1.0);
+    OutColor = float4(UV.xy, 0.0, 1.0);
 }

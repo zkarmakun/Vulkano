@@ -10,8 +10,9 @@
 #include "Core/Assertion.h"
 #include "Core/VulkanoLog.h"
 
-std::map<std::size_t, std::shared_ptr<FRenderPass>>         FVulkan::RenderPasses;
-std::map<std::size_t, std::shared_ptr<FGraphicsPipeline>>   FVulkan::PSOs;
+std::map<std::uint32_t, FRenderPass*>         FVulkan::RenderPasses;
+std::map<std::uint32_t, FGraphicsPipeline*>   FVulkan::PSOs;
+
 
 VkInstance          FVulkan::Instance = { VK_NULL_HANDLE };
 VkDevice            FVulkan::Device = { VK_NULL_HANDLE };
@@ -24,6 +25,8 @@ VkQueue             FVulkan::PresentQueue = VK_NULL_HANDLE;
 VkQueue             FVulkan::ComputeQueue = VK_NULL_HANDLE;
 uint32_t            FVulkan::MajorVersion = UINT32_MAX;
 uint32_t            FVulkan::MinorVersion = UINT32_MAX;
+VkCommandPool       FVulkan::GraphicsCommandPool = VK_NULL_HANDLE;
+VkCommandBuffer     FVulkan::GraphicsCommandBuffer = VK_NULL_HANDLE;
 
 PFN_vkCreateDebugUtilsMessengerEXT  FVulkan::vkCreateDebugUtilsMessengerEXT;
 PFN_vkDestroyDebugUtilsMessengerEXT FVulkan::vkDestroyDebugUtilsMessengerEXT;
@@ -334,6 +337,26 @@ void FVulkan::CreateVulkanDevice(HINSTANCE hInstance)
     vkGetDeviceQueue(Device, PresentIndex, 0, &PresentQueue);
     vkGetDeviceQueue(Device, ComputeIndex, 0, &ComputeQueue);
 
+    // Create command pools and command buffers
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.queueFamilyIndex = GraphicsIndex;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;  // Allows command buffers to be reset
+    if(vkCreateCommandPool(Device, &poolInfo, nullptr, &GraphicsCommandPool) != VK_SUCCESS)
+    {
+        fatal("FVulkan::CreateVulkanDevice Fail creating Graphics command pool");
+    }
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = GraphicsCommandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+    if(vkAllocateCommandBuffers(Device, &allocInfo, &GraphicsCommandBuffer) != VK_SUCCESS)
+    {
+        fatal("FVulkan::CreateVulkanDevice Fail creating Graphics command buffer");
+    }
+
     VKGlobals::InitGlobalResources();
 }
 
@@ -341,23 +364,31 @@ void FVulkan::ExitVulkan()
 {
     for(auto& Elem : PSOs)
     {
-        if(std::shared_ptr<FGraphicsPipeline> It = Elem.second)
+        if(FGraphicsPipeline* It = Elem.second)
         {
             It->Release();
-            It.reset();
+            delete It;
         }
     }
     PSOs.clear();
 
     for(auto& Elem : RenderPasses)
     {
-        if(std::shared_ptr<FRenderPass> It = Elem.second)
+        if(FRenderPass* It = Elem.second)
         {
             It->Release();
-            It.reset();
+            delete It;
         }
     }
     RenderPasses.clear();
+
+    // Destroy commands
+    if(GraphicsCommandBuffer != VK_NULL_HANDLE)
+    {
+        vkFreeCommandBuffers(Device, GraphicsCommandPool, 1, &GraphicsCommandBuffer);
+        vkDestroyCommandPool(Device, GraphicsCommandPool, nullptr);
+        GraphicsCommandPool = VK_NULL_HANDLE;
+    }
     
     VKGlobals::CleanupGlobalResources();
     
@@ -424,6 +455,11 @@ VkQueue FVulkan::GetGraphicsQueue()
 VkQueue FVulkan::GetPresentQueue()
 {
     return PresentQueue;
+}
+
+VkCommandBuffer& FVulkan::GetGraphicsBuffer()
+{
+    return GraphicsCommandBuffer;
 }
 
 std::vector<std::string> FVulkan::GetSupportedExtensions()
@@ -551,62 +587,62 @@ VkImageView FVulkan::CreateImageView(VkImage Image, VkFormat Format, VkImageAspe
     return imageView;
 }
 
-std::shared_ptr<FVulkanTexture> FVulkan::CreateTexture(int X, int Y, VkFormat Format, VkImageUsageFlags Flags, VkMemoryPropertyFlags MemoryFlags, std::string TextureName, VkImageTiling Tilling, VkImageAspectFlags AspectFlags)
+std::shared_ptr<FVulkanTexture> FVulkan::CreateTexture(uint32_t X, uint32_t Y, VkFormat Format, VkImageUsageFlags Flags, VkMemoryPropertyFlags MemoryFlags, const std::string& TextureName, VkImageTiling Tilling, VkImageAspectFlags AspectFlags)
 {
     std::shared_ptr<FVulkanTexture> Texture = std::make_shared<FVulkanTexture>();
     Texture->Format = Format;
     Texture->SizeX = X;
     Texture->SizeY = Y;
     Texture->ImageTilling = Tilling;
-    Texture->Name = TextureName;
+    Texture->ResourceName = TextureName;
     
-    VkImageCreateInfo imageInfo = {};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = X;
-    imageInfo.extent.height = Y;
-    imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = Format;
-    imageInfo.tiling = Tilling;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = Flags;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkImageCreateInfo ImageCreateInfo = {};
+    ImageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ImageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+    ImageCreateInfo.extent.width = X;
+    ImageCreateInfo.extent.height = Y;
+    ImageCreateInfo.extent.depth = 1;
+    ImageCreateInfo.mipLevels = 1;
+    ImageCreateInfo.arrayLayers = 1;
+    ImageCreateInfo.format = Format;
+    ImageCreateInfo.tiling = Tilling;
+    ImageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ImageCreateInfo.usage = Flags;
+    ImageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    ImageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(Device, &imageInfo, nullptr, &Texture->Image) != VK_SUCCESS)
+    if (vkCreateImage(Device, &ImageCreateInfo, nullptr, &Texture->Image) != VK_SUCCESS)
     {
         checkf(0, "Fail creating texture");
     }
 
-    VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(Device, Texture->Image, &memRequirements);
+    VkMemoryRequirements MemRequirements;
+    vkGetImageMemoryRequirements(Device, Texture->Image, &MemRequirements);
 
-    VkMemoryAllocateInfo allocInfo = {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(PhysicalDevice, memRequirements.memoryTypeBits, MemoryFlags);
+    VkMemoryAllocateInfo MemoryAllocateInfo = {};
+    MemoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    MemoryAllocateInfo.allocationSize = MemRequirements.size;
+    MemoryAllocateInfo.memoryTypeIndex = FindMemoryType(PhysicalDevice, MemRequirements.memoryTypeBits, MemoryFlags);
 
-    if (vkAllocateMemory(Device, &allocInfo, nullptr, &Texture->ImageMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(Device, &MemoryAllocateInfo, nullptr, &Texture->ImageMemory) != VK_SUCCESS)
     {
         checkf(0, "Fail allocation memory for texture");
     }
 
     vkBindImageMemory(Device, Texture->Image, Texture->ImageMemory, 0);
 
-    VkImageViewCreateInfo viewInfo = {};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = Texture->Image;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = Format;
-    viewInfo.subresourceRange.aspectMask = AspectFlags;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
+    VkImageViewCreateInfo ImageViewCreateInfo = {};
+    ImageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    ImageViewCreateInfo.image = Texture->Image;
+    ImageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    ImageViewCreateInfo.format = Format;
+    ImageViewCreateInfo.subresourceRange.aspectMask = AspectFlags;
+    ImageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+    ImageViewCreateInfo.subresourceRange.levelCount = 1;
+    ImageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+    ImageViewCreateInfo.subresourceRange.layerCount = 1;
     
-    if (vkCreateImageView(Device, &viewInfo, nullptr, &Texture->ImageView) != VK_SUCCESS)
+    if (vkCreateImageView(Device, &ImageViewCreateInfo, nullptr, &Texture->ImageView) != VK_SUCCESS)
     {
         checkf(0, "Fail creating image view");
     }
@@ -621,98 +657,94 @@ void FVulkan::ReleaseTexture(std::shared_ptr<FVulkanTexture>& Texture)
         return;
     }
     
-    // Destroy Image View
-    if (Texture->ImageView != VK_NULL_HANDLE)
-    {
-        vkDestroyImageView(Device, Texture->ImageView, nullptr);
-        Texture->ImageView = VK_NULL_HANDLE;
-    }
-
-    // Destroy Image
-    if (Texture->Image != VK_NULL_HANDLE)
-    {
-        vkDestroyImage(Device, Texture->Image, nullptr);
-        Texture->Image = VK_NULL_HANDLE;
-    }
-
-    // Free Memory
-    if (Texture->ImageMemory != VK_NULL_HANDLE)
-    {
-        vkFreeMemory(Device, Texture->ImageMemory, nullptr);
-        Texture->ImageMemory = VK_NULL_HANDLE;
-    }
-
+    Texture->Release();
     Texture.reset();
 }
 
-template <typename StructType>
-FVulkanBuffer FVulkan::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties)
+std::shared_ptr<FVulkanBuffer> FVulkan::CreateBuffer(VkDeviceSize BufferSize, uint32_t ElemNumber, VkBufferUsageFlags BufferUsage, VkMemoryPropertyFlags MemoryProperties, const std::string& BufferName /*= "Buffer"*/)
 {
-    FVulkanBuffer Result;
-    
+    std::shared_ptr<FVulkanBuffer> Result = std::make_shared<FVulkanBuffer>();
+    Result->ResourceName = BufferName;
+    Result->SetNumberOfElements(ElemNumber);
     VkBufferCreateInfo BufferCreateInfo{};
     BufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    BufferCreateInfo.size = size;
-    BufferCreateInfo.usage = usage;
+    BufferCreateInfo.size = BufferSize;
+    BufferCreateInfo.usage = BufferUsage;
     BufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(Device, &BufferCreateInfo, nullptr, &Result.Buffer) != VK_SUCCESS)
+    if (vkCreateBuffer(Device, &BufferCreateInfo, nullptr, &Result->Buffer) != VK_SUCCESS)
     {
-        fatal("FVulkan::CreateBuffer Fail creating buffer");
+        fatal("FVulkan::CreateBuffer Fail creating buffer size: %i, name: %s", BufferSize, BufferName.c_str());
     }
 
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(Device, Result.Buffer, &memRequirements);
+    VkMemoryRequirements MemRequirements;
+    vkGetBufferMemoryRequirements(Device, Result->Buffer, &MemRequirements);
 
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = FindMemoryType(PhysicalDevice, memRequirements.memoryTypeBits, properties);
+    VkMemoryAllocateInfo MemoryAllocateInfo{};
+    MemoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    MemoryAllocateInfo.allocationSize = MemRequirements.size;
+    MemoryAllocateInfo.memoryTypeIndex = FindMemoryType(PhysicalDevice, MemRequirements.memoryTypeBits, MemoryProperties);
 
-    if (vkAllocateMemory(Device, &allocInfo, nullptr, &Result.BufferMemory) != VK_SUCCESS)
+    if (vkAllocateMemory(Device, &MemoryAllocateInfo, nullptr, &Result->BufferMemory) != VK_SUCCESS)
     {
-        fatal("FVulkan::CreateBuffer Fail allocating memory for buffer");
+        fatal("FVulkan::CreateBuffer Fail allocating memory for buffer, size: %i, name: %s", BufferSize, BufferName.c_str());
     }
 
-    vkBindBufferMemory(Device, Result.Buffer, Result.BufferMemory, 0);
+    vkBindBufferMemory(Device, Result->Buffer, Result->BufferMemory, 0);
+    VK_LOG(LOG_INFO, "Buffer created success, byte size: %i, name: %s", BufferSize, BufferName.c_str());
     return Result;
 }
 
-void FVulkan::SetBufferData(FVulkanBuffer& Buffer, const void* BufferData, size_t BufferSize)
+void FVulkan::UpdateBuffer(const std::shared_ptr<FVulkanBuffer>& Buffer, const void* BufferData, size_t BufferSize)
 {
-    void* data;
-    vkMapMemory(Device, Buffer.BufferMemory, 0, BufferSize, 0, &data);
-    memcpy(data, BufferData, BufferSize);
-    vkUnmapMemory(Device, Buffer.BufferMemory);
+    if(Buffer)
+    {
+        void* data;
+        vkMapMemory(Device, Buffer->BufferMemory, 0, BufferSize, 0, &data);
+        memcpy(data, BufferData, BufferSize);
+        vkUnmapMemory(Device, Buffer->BufferMemory);
+    }
 }
 
-std::size_t GenerateUniqueId(const std::string& input) {
-    return std::hash<std::string>{}(input);
+std::uint32_t GenerateUniqueId(const std::string& input)
+{
+    return static_cast<uint32_t>(std::hash<std::string>{}(input));
 }
 
-std::shared_ptr<FRenderPass> FVulkan::BeginRenderPass(const FRenderPassInfo& RenderPassInfo, VkExtent2D ViewSize, const std::string& RenderPassName)
+FRenderPass* FVulkan::BeginRenderPass(const FRenderPassInfo& RenderPassInfo, VkExtent2D ViewSize, const std::string& RenderPassName)
 {
-    std::shared_ptr<FRenderPass> RenderPass = GetOrCreateRenderPass(RenderPassInfo, ViewSize, RenderPassName);
+    FRenderPass* RenderPass = GetOrCreateRenderPass(RenderPassInfo, ViewSize, RenderPassName);
+    
+    std::vector<VkClearValue> ClearValues;
+    for(const FRenderPassInfo::FColorAttachment& ColorTarget : RenderPassInfo.ColorRenderTargets)
+    {
+        VkClearValue& Elem = ClearValues.emplace_back();
+        Elem.color = ColorTarget.ClearColor;
+    }
 
-    /*VkRenderPassBeginInfo renderPassInfo{};
+    if(RenderPassInfo.DepthStencilRenderTarget.Target)
+    {
+        VkClearValue& Elem = ClearValues.emplace_back();
+        Elem.depthStencil = RenderPassInfo.DepthStencilRenderTarget.StencilClearColor;
+    }
+    
+    VkRenderPassBeginInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     renderPassInfo.renderPass = RenderPass->RenderPass;
     renderPassInfo.framebuffer = RenderPass->FrameBuffer;
     renderPassInfo.renderArea.offset = {0, 0};
     renderPassInfo.renderArea.extent = ViewSize;
+    renderPassInfo.clearValueCount = static_cast<uint32_t>(ClearValues.size());
+    renderPassInfo.pClearValues = ClearValues.data();
     
-    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
-    
-    vkCmdBeginRenderPass(offscreenCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);*/
+    vkCmdBeginRenderPass(GraphicsCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     return RenderPass;
 }
 
-std::shared_ptr<FRenderPass> FVulkan::GetOrCreateRenderPass(const FRenderPassInfo& RenderPassInfo,  VkExtent2D ViewSize, const std::string& RenderPassName)
+FRenderPass* FVulkan::GetOrCreateRenderPass(const FRenderPassInfo& RenderPassInfo,  VkExtent2D ViewSize, const std::string& RenderPassName)
 {
-    std::size_t PassId = GenerateUniqueId(RenderPassName);
+    uint32_t PassId = GenerateUniqueId(RenderPassName);
     auto it = RenderPasses.find(PassId);
     if (it != RenderPasses.end())
     {
@@ -787,7 +819,7 @@ std::shared_ptr<FRenderPass> FVulkan::GetOrCreateRenderPass(const FRenderPassInf
     VkRenderPass RenderPass = VK_NULL_HANDLE;
     if(vkCreateRenderPass(Device, &renderPassInfo, nullptr, &RenderPass) == VK_SUCCESS)
     {
-        std::shared_ptr<FRenderPass> NewRenderPass = std::make_shared<FRenderPass>();
+        FRenderPass* NewRenderPass = new FRenderPass();
         NewRenderPass->RenderPassName = RenderPassName;
         NewRenderPass->RenderPass = RenderPass;
         
@@ -813,7 +845,7 @@ std::shared_ptr<FRenderPass> FVulkan::GetOrCreateRenderPass(const FRenderPassInf
     fatal("Fail creating render pass %s", RenderPassName.c_str());
 }
 
-std::shared_ptr<FGraphicsPipeline> FVulkan::SetGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer)
+FGraphicsPipeline* FVulkan::SetGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer)
 {
     // We need at least vertex and pixel shader
     if(!PSOInitializer.VertexShader || !PSOInitializer.PixelShader || !PSOInitializer.RenderPass)
@@ -822,10 +854,11 @@ std::shared_ptr<FGraphicsPipeline> FVulkan::SetGraphicsPipeline(const FGraphicsP
     }
 
     // Will use the same id as the render pass
-    std::size_t Id = GenerateUniqueId(PSOInitializer.RenderPass->RenderPassName);
+    uint32_t Id = GenerateUniqueId(PSOInitializer.RenderPass->RenderPassName);
     auto it = PSOs.find(Id);
     if (it != PSOs.end())
     {
+        vkCmdBindPipeline(GraphicsCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, it->second->GetGraphicsPipeline());
         return it->second;
     }
 
@@ -933,24 +966,154 @@ std::shared_ptr<FGraphicsPipeline> FVulkan::SetGraphicsPipeline(const FGraphicsP
         fatal("FVulkan::SetGraphicsPipeline failed to create graphics pipeline");
     }
 
-    std::shared_ptr<FGraphicsPipeline> NewGraphics = std::make_shared<FGraphicsPipeline>(GraphicsPipeline, PipeLineLayout);
+    FGraphicsPipeline* NewGraphics = new FGraphicsPipeline(GraphicsPipeline, PipeLineLayout);
     PSOs[Id] = NewGraphics;
     VK_LOG(LOG_SUCCESS, "Creating graphics PSO render pass: %s", PSOInitializer.RenderPass->RenderPassName.c_str());
+
+    vkCmdBindPipeline(GraphicsCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, NewGraphics->GetGraphicsPipeline());
+    
     return NewGraphics;
 }
 
-void FVulkan::SetScissorRect(bool bEnabled, float MinX, float MinY, float MaxX, float MaxY)
+void FVulkan::BindStreamResource(int Index, std::shared_ptr<FVulkanBuffer> Buffer, uint64_t Offset)
 {
-    
+    if(Buffer)
+    {
+        VkDeviceSize offsets[] = { Offset };
+        vkCmdBindVertexBuffers(GraphicsCommandBuffer, Index, 1, &Buffer->Buffer, offsets);
+    }
+}
+
+void FVulkan::DrawPrimitive(uint32_t BaseVertexIndex, uint32_t VertexCount, uint32_t NumInstances)
+{
+    vkCmdDraw(GraphicsCommandBuffer, VertexCount, NumInstances, BaseVertexIndex, 0);
+}
+
+void FVulkan::SetScissorRect(bool bEnabled, int32_t MinX, int32_t MinY, uint32_t MaxX, uint32_t MaxY)
+{
+    // Set the scissor rectangle dynamically
+    VkRect2D scissor{};
+    scissor.offset.x = MinX;
+    scissor.offset.y = MinY;
+    scissor.extent.width = MaxX;
+    scissor.extent.height = MaxY;
+    vkCmdSetScissor(GraphicsCommandBuffer, 0, 1, &scissor);
 }
 
 void FVulkan::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ)
 {
-    
+    VkViewport viewport{};
+    viewport.x = MinX;
+    viewport.y = MinY;
+    viewport.width = MaxX;
+    viewport.height = MaxY;
+    viewport.minDepth = MinZ;
+    viewport.maxDepth = MaxZ;
+    vkCmdSetViewport(GraphicsCommandBuffer, 0, 1, &viewport);
 }
 
 void FVulkan::EndRenderPass()
 {
-    
+    vkCmdEndRenderPass(GraphicsCommandBuffer);
+}
+
+void FVulkan::ResetGraphicsCommandBuffer()
+{
+    vkResetCommandBuffer(GraphicsCommandBuffer, 0);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    vkBeginCommandBuffer(GraphicsCommandBuffer, &beginInfo);
+}
+
+void FVulkan::EndGraphicsCommandBuffer()
+{
+    vkEndCommandBuffer(GraphicsCommandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &GraphicsCommandBuffer;
+
+    vkQueueSubmit(GraphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(GraphicsQueue); 
+}
+
+void FVulkan::TransitionBarrier(const std::shared_ptr<FVulkanTexture> Input, const std::shared_ptr<FVulkanTexture> TransitionTo)
+{
+    VkImageMemoryBarrier barrier1 = {};
+    barrier1.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier1.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier1.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier1.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier1.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier1.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier1.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier1.image = Input->Image;
+    barrier1.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier1.subresourceRange.baseMipLevel = 0;
+    barrier1.subresourceRange.levelCount = 1;
+    barrier1.subresourceRange.baseArrayLayer = 0;
+    barrier1.subresourceRange.layerCount = 1;
+
+    vkCmdPipelineBarrier(
+        GraphicsCommandBuffer,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &barrier1
+    );
+
+    VkImageMemoryBarrier barrier2 = {};
+    barrier2.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier2.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier2.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+    barrier2.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier2.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier2.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier2.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier2.image = TransitionTo->Image;
+    barrier2.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier2.subresourceRange.baseMipLevel = 0;
+    barrier2.subresourceRange.levelCount = 1;
+    barrier2.subresourceRange.baseArrayLayer = 0;
+    barrier2.subresourceRange.layerCount = 1;
+
+    vkCmdPipelineBarrier(
+        GraphicsCommandBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        0,
+        0, nullptr,
+        0, nullptr,
+        1, &barrier2
+    );
+}
+
+void FVulkan::CopyTexture(const std::shared_ptr<FVulkanTexture> Source, const std::shared_ptr<FVulkanTexture> Target)
+{
+    VkImageCopy CopyRegion{};
+    CopyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    CopyRegion.srcSubresource.mipLevel = 0;
+    CopyRegion.srcSubresource.baseArrayLayer = 0;
+    CopyRegion.srcSubresource.layerCount = 1;
+    CopyRegion.srcOffset = {0, 0, 0};
+    CopyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    CopyRegion.dstSubresource.mipLevel = 0;
+    CopyRegion.dstSubresource.baseArrayLayer = 0;
+    CopyRegion.dstSubresource.layerCount = 1;
+    CopyRegion.dstOffset = {0, 0, 0};
+    CopyRegion.extent.width = Source->SizeX;
+    CopyRegion.extent.height = Source->SizeY;
+    CopyRegion.extent.depth = 1;
+
+    vkCmdCopyImage(
+        GraphicsCommandBuffer,
+        Source->Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        Target->Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &CopyRegion
+    );
 }
 

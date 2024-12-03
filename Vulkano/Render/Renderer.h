@@ -27,17 +27,21 @@ public:
 
 private:
     void CreateSwapChain();
-
+    std::shared_ptr<FVulkanTexture> GetSwapChainTexture();
+    void PresetImage() const; 
+    
 private:
     bool bInitialized = false;
     FRenderWindow* pRenderWindow = nullptr;
 
     VkSwapchainKHR SwapChain = VK_NULL_HANDLE;
+    uint32_t FrameIndex = 0;
+    VkSemaphore ImageAvailableSemaphore = VK_NULL_HANDLE;
+    VkSemaphore RenderFinishedSemaphore = VK_NULL_HANDLE;
+    VkFence Fence;
     VkSurfaceKHR SurfaceKHR = VK_NULL_HANDLE;
     VkExtent2D ViewportSize = {0, 0};
 
-    std::vector<FVulkanTexture> SwapChainTextures;
-    FVulkanTexture DepthStencil;
-
+    std::vector<std::shared_ptr<FVulkanTexture>> SwapChainTextures;
     FVulkanGBuffer GBuffer;
 };

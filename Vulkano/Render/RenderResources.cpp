@@ -14,12 +14,64 @@ FVulkanTexture::FVulkanTexture(const VkImage& InImage, const VkImageView& InImag
 {
     Image = InImage;
     ImageView = InImageView;
-    Name = TextureName; 
+    ResourceName = TextureName; 
 }
 
-bool FVulkanTexture::Valid() const
+bool FVulkanTexture::IsValid() const
 {
     return ImageView != VK_NULL_HANDLE;
+}
+
+void FVulkanTexture::Release()
+{
+    // Destroy Image View
+    if (ImageView != VK_NULL_HANDLE)
+    {
+        vkDestroyImageView(FVulkan::GetDevice(), ImageView, nullptr);
+        ImageView = VK_NULL_HANDLE;
+    }
+
+    // Destroy Image
+    if (Image != VK_NULL_HANDLE)
+    {
+        vkDestroyImage(FVulkan::GetDevice(), Image, nullptr);
+        Image = VK_NULL_HANDLE;
+    }
+
+    // Free Memory
+    if (ImageMemory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(FVulkan::GetDevice(), ImageMemory, nullptr);
+        ImageMemory = VK_NULL_HANDLE;
+    }
+}
+
+bool FVulkanBuffer::IsValid() const
+{
+    return Buffer != VK_NULL_HANDLE;
+}
+
+void FVulkanBuffer::Release()
+{
+    if(BufferMemory)
+    {
+        vkDeviceWaitIdle(FVulkan::GetDevice());
+        vkFreeMemory(FVulkan::GetDevice(), BufferMemory, nullptr);
+        BufferMemory = VK_NULL_HANDLE;
+
+        vkDestroyBuffer(FVulkan::GetDevice(), Buffer, nullptr);
+        Buffer = VK_NULL_HANDLE;
+    }
+}
+
+uint32_t FVulkanBuffer::GetElemNum() const
+{
+    return NumberOfElements;
+}
+
+void FVulkanBuffer::SetNumberOfElements(uint32_t Size)
+{
+    NumberOfElements = Size;
 }
 
 FGraphicsPipeline::FGraphicsPipeline(const VkPipeline& Pipeline, const VkPipelineLayout& Layout)
@@ -44,9 +96,14 @@ void FGraphicsPipeline::Release()
     }
 }
 
+const VkPipeline& FGraphicsPipeline::GetGraphicsPipeline() const
+{
+    return GraphicsPipeline;
+}
+
 FRenderPassInfo::FRenderPassInfo(std::vector<std::shared_ptr<FVulkanTexture>> RenderTargets, VkAttachmentLoadOp Load,
-    VkAttachmentStoreOp Store, std::shared_ptr<FVulkanTexture> DepthStencil, VkAttachmentLoadOp StencilLoad,
-    VkAttachmentStoreOp StencilStore)
+                                 VkAttachmentStoreOp Store, std::shared_ptr<FVulkanTexture> DepthStencil, VkAttachmentLoadOp StencilLoad,
+                                 VkAttachmentStoreOp StencilStore)
 {
     if(RenderTargets.size() > MaxRenderTargets)
     {

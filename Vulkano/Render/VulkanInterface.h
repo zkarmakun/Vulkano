@@ -20,6 +20,7 @@ public:
     static VkBool32 GetSupportedDepthFormat(VkFormat* depthFormat);
     static VkQueue GetGraphicsQueue();
     static VkQueue GetPresentQueue();
+    static VkCommandBuffer& GetGraphicsBuffer();
 
     static std::vector<std::string> GetSupportedExtensions();
     static VkInstance& GetInstance();
@@ -33,26 +34,32 @@ public:
     static void CreateImage(uint32_t Width, uint32_t Height, VkFormat Format, VkImageTiling Tiling, VkImageUsageFlags ImageUsageFlags, VkMemoryPropertyFlags MemoryPropertyFlags, VkImage& Image, VkDeviceMemory& ImageMemory);
     static VkImageView CreateImageView(VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlags);
     
-    static std::shared_ptr<FVulkanTexture> CreateTexture(int X, int Y, VkFormat Format, VkImageUsageFlags Flags, VkMemoryPropertyFlags MemoryFlags, std::string TextureName = "Texture", VkImageTiling Tilling = VK_IMAGE_TILING_LINEAR, VkImageAspectFlags AspectFlags = VK_IMAGE_ASPECT_COLOR_BIT);
+    static std::shared_ptr<FVulkanTexture> CreateTexture(uint32_t X, uint32_t Y, VkFormat Format, VkImageUsageFlags Flags, VkMemoryPropertyFlags MemoryFlags, const std::string& TextureName = "Texture", VkImageTiling Tilling = VK_IMAGE_TILING_LINEAR, VkImageAspectFlags AspectFlags = VK_IMAGE_ASPECT_COLOR_BIT);
     static void ReleaseTexture(std::shared_ptr<FVulkanTexture>& Texture);
     
-    template<typename StructType>
-    static FVulkanBuffer CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
-    static void SetBufferData(FVulkanBuffer& Buffer, const void* BufferData, size_t BufferSize);
+    static std::shared_ptr<FVulkanBuffer> CreateBuffer(VkDeviceSize BufferSize, uint32_t ElemNumber, VkBufferUsageFlags BufferUsage, VkMemoryPropertyFlags MemoryProperties, const std::string& BufferName = "Buffer");
+    static void UpdateBuffer(const std::shared_ptr<FVulkanBuffer>& Buffer, const void* BufferData, size_t BufferSize);
 
-    static std::shared_ptr<FRenderPass> BeginRenderPass(const FRenderPassInfo& RenderPassInfo, VkExtent2D ViewSize, const std::string& RenderPassName);
-    static std::shared_ptr<FGraphicsPipeline> SetGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer);
-    static void SetScissorRect(bool bEnabled, float MinX, float MinY, float MaxX, float MaxY);
+    static FRenderPass* BeginRenderPass(const FRenderPassInfo& RenderPassInfo, VkExtent2D ViewSize, const std::string& RenderPassName);
+    static FGraphicsPipeline* SetGraphicsPipeline(const FGraphicsPipelineInitializer& PSOInitializer);
+    static void BindStreamResource(int Index, std::shared_ptr<FVulkanBuffer> Buffer, uint64_t Offset);
+    static void DrawPrimitive(uint32_t BaseVertexIndex, uint32_t VertexCount, uint32_t NumInstances);
+    static void SetScissorRect(bool bEnabled, int32_t MinX, int32_t MinY, uint32_t MaxX, uint32_t MaxY);
     static void SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ);
     static void EndRenderPass();
+    static void ResetGraphicsCommandBuffer();
+    static void EndGraphicsCommandBuffer();
+    static void TransitionBarrier(const std::shared_ptr<FVulkanTexture> Input, const std::shared_ptr<FVulkanTexture> TransitionTo);
+    static void CopyTexture(const std::shared_ptr<FVulkanTexture> Source, const std::shared_ptr<FVulkanTexture> Target);
+
 
 private:
-    static std::shared_ptr<FRenderPass> GetOrCreateRenderPass(const FRenderPassInfo& RenderPassInfo,  VkExtent2D ViewSize, const std::string& RenderPassName);
+    static FRenderPass* GetOrCreateRenderPass(const FRenderPassInfo& RenderPassInfo,  VkExtent2D ViewSize, const std::string& RenderPassName);
     static void SelectPhysicalDevice();
     
 private:
-    static std::map<std::size_t, std::shared_ptr<FRenderPass>> RenderPasses;
-    static std::map<std::size_t, std::shared_ptr<FGraphicsPipeline>> PSOs;
+    static std::map<std::uint32_t, FRenderPass*> RenderPasses;
+    static std::map<std::uint32_t, FGraphicsPipeline*> PSOs;
 
     static VkInstance Instance;
     static VkDevice Device;
@@ -70,4 +77,6 @@ private:
     static VkQueue ComputeQueue;
     static uint32_t MajorVersion;
     static uint32_t MinorVersion;
+    static VkCommandPool GraphicsCommandPool;
+    static VkCommandBuffer GraphicsCommandBuffer;
 };

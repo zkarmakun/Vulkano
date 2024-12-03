@@ -2,7 +2,7 @@
 #include <fbxsdk.h>
 #include <glm/vec4.hpp>
 
-bool FFbxImport::GetStaticMeshData(const std::string FilePath, std::vector<FStaticVertex>& Vertices, std::vector<uint32_t>& Indices)
+bool FFbxImport::GetStaticMeshData(const std::string FilePath, std::vector<FStaticMeshVertex>& Vertices, std::vector<uint32_t>& Indices)
 {
     Vertices.clear();
     Indices.clear();
@@ -39,7 +39,7 @@ bool FFbxImport::GetStaticMeshData(const std::string FilePath, std::vector<FStat
                 int vertexCount = mesh->GetControlPointsCount();
                 for (int j = 0; j < vertexCount; j++)
                 {
-                    FStaticVertex StaticVertex;
+                    FStaticMeshVertex StaticVertex;
                     // Get Position
                     FbxVector4 vertex = vertices[j];
                     glm::vec3 position(vertex[0], vertex[1], vertex[2]);
